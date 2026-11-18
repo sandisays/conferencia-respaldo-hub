@@ -151,7 +151,7 @@
       <li>Aviso não é erro: é ponto para olhar no documento (ex.: rótulo que o CSI não traz).</li>
     </ul>
   </div>
-  <footer>Conferência de respaldo do HUB · v1.7</footer>
+  <footer>Conferência de respaldo do HUB · v1.8</footer>
 </main>
 
 <script>/**
@@ -658,6 +658,7 @@ else if (typeof exports === 'object')
     return 'outro';
   }
   var TYPES = { pscf: 'Relatório PSCF 7446', anexo4: 'Anexo IV', csn: 'CSN', csi: 'CSI', dcpoa: 'DCPOA', sigsif: 'SIGSIF', ficha: 'Ficha do SIF', outro: 'Não reconhecido' };
+  function numPadrao(n) { n = String(n).trim(); return /^[NI]\d-\d{8}\/[A-Z0-9]+(?:-[A-Z]+)?\/\d{2}$/.test(n) || /^\d{6}\/\d{2,5}\/\d{2}$/.test(n); }
   function tipoNum(n) { n = norm(n).trim(); return /^N\d-/.test(n) ? 'csn' : /^I\d-/.test(n) ? 'csi' : 'dcpoa'; }
   function isResp(t) { return t === 'csn' || t === 'csi' || t === 'dcpoa' || t === 'sigsif'; }
 
@@ -837,7 +838,23 @@ else if (typeof exports === 'object')
     else if ((m = /(?:DCPOA|DECLARACAO)[^\d]{0,40}(\d{3,8}\s?\/\s?\d{2,4}(?:\s?\/\s?\d{2,4})?)/.exec(Ud))) { D.numero = m[1].replace(/\s/g, ''); D.key = D.numero.replace(/\D/g, ''); }
     // habilitação por item (Observações do CSN) e do documento
     var re = /ITE(?:M|NS)\s+((?:\d{1,2}\.\d{1,2}\.?\s*(?:,|\bE\b)?\s*)+)\s*-?\s*HABILITA\w*\s*:?\s*([^;]+?)(?=;|\s+ITE(?:M|NS)\s+\d|\s+VERIFICAR|\s+NOME DO|$)/g;
-    while ((m = re.exec(flat))) { var its = m[1].match(/\d{1,2}\.\d{1,2}/g) || [], cs = countries(m[2]); its.forEach(function (it) { D.habilItens[it] = cs; }); }
+    // Observações: habilitação por item ("ITEM 1.1, 1.2 HABILITAÇÃO: ...", "ITEM 1 FILIPINAS; ITEM 3 JAPÃO") ou geral
+    var obs = (/OBSERVACOES\s*:?\s*(.*?)(?=\s+VERIFICAR EM|\s+CODIGO DE AUTENTICIDADE|\s+NOME DO MEDICO|$)/.exec(flat) || [])[1] || '';
+    obs = obs.trim(); D.obs = obs;
+    if (obs && !/^X+\.?$/.test(obs)) {
+      var partes = obs.split(/\bITE(?:M|NS)\b/);
+      partes.slice(1).forEach(function (pt) {
+        var mm = /^[\s:.\-nº°]*((?:\d{1,2}(?:\.\d{1,2})?\.?\s*(?:,|\bE\b|\bA\b|\/|-)?\s*)+)(.*)$/.exec(pt); if (!mm) return;
+        var nums = [], toks = mm[1].replace(/\.\s*$/, '').split(/\s*(?:,|\bE\b|\/)\s*/);
+        toks.forEach(function (t) { var r = /^(\d{1,2}(?:\.\d{1,2})?)\s*(?:\bA\b|-)\s*(\d{1,2}(?:\.\d{1,2})?)$/.exec(t.trim());
+          var lab = function (x) { x = x.replace(/\.$/, ''); return x.indexOf('.') >= 0 ? x : '1.' + x; };
+          if (r) { var a = +lab(r[1]).split('.')[1], b = +lab(r[2]).split('.')[1]; for (var q = a; q <= b; q++) nums.push('1.' + q); }
+          else if (/^\d/.test(t.trim())) nums.push(lab(t.trim())); });
+        var txt = mm[2].replace(/^\s*-?\s*HABILITA\w*\s*:?\s*/, '').replace(/[;.\s]+$/, '').trim();
+        if (txt) nums.forEach(function (it) { D.habilItens[it] = [txt]; });
+      });
+      if (partes.length === 1 && /HABILITA/.test(obs)) D.habilObs = [obs.replace(/^.*?HABILITA\w*\s*:?\s*/, '').replace(/[;.\s]+$/, '')];
+    }
     if ((m = /ECONOMICO\(S\)\s*:\s*(.+?)\s+1\.\s*IDENTIFICA/.exec(flat))) D.habilDoc = countries(m[1]);
     D.destField = cleanCountry(findDestField(pages));
     if ((m = /DESTINATARIO.{0,140}?SIF\s*(\d{2,5})/.exec(flat))) D.destSif = m[1];
@@ -881,6 +898,7 @@ else if (typeof exports === 'object')
         for (var t = toks.length - 1; t >= 0; t--) { if (/^\d{1,3}(\.\d{3})*,\d{2,3}$/.test(toks[t])) { row.peso = parseNum(toks[t], true); if (t > 0 && /^\d+(\.\d{3})*$/.test(toks[t - 1])) row.vol = parseNum(toks[t - 1], true); break; } }
         toks.forEach(function (x) { if (/^\d{2,5}$/.test(x)) row.sifs.push(x); });
         if (/^\d\.\d/.test(row.label) && D.habilItens[row.label]) row.habil = D.habilItens[row.label];
+        else if (Object.keys(D.habilItens).length) row.habilFalta = Object.keys(D.habilItens).sort().join(', ');
         D.rows.push(row);
       });
     });
@@ -902,6 +920,7 @@ else if (typeof exports === 'object')
   function pg0Words(pages) { return pages.some(function (p) { return p.words && p.words.length; }); }
   function habilOf(doc, row) {
     if (row && row.habil && row.habil.length) return { list: row.habil, src: 'Observações, ' + row.label };
+    if (doc.parsed.habilObs) return { list: doc.parsed.habilObs, src: 'Observações' };
     if (doc.type === 'csi' && doc.parsed.destField) return { list: countries(doc.parsed.destField), src: 'país de destino do CSI' };
     if (doc.parsed.habilDoc.length) return { list: doc.parsed.habilDoc, src: 'países do cabeçalho' };
     if (doc.parsed.destField) return { list: countries(doc.parsed.destField), src: 'país de destino' };
@@ -1129,6 +1148,8 @@ else if (typeof exports === 'object')
       var ls = byCert[k], cert = ls[0].cert, hab = P.habil[k];
       if (!cert) { ls.forEach(function (l) { lotRows.push({ l: l, st: 'warn', msg: 'Sem certificado no PSCF' }); }); W('Lotes sem certificado no PSCF (SIF ' + ls[0].sif + ').', ls.map(function (l) { return l.lote; }).join(', ')); return; }
       var tipoPscf = tipoNum(cert), dg = String(cert).replace(/\D/g, '');
+      if (!numPadrao(cert)) E(TYPES[tipoPscf] + ' com número fora do padrão no PSCF: ' + cert + '.', tipoPscf === 'dcpoa' ? 'Padrão: 000000/SIF/26.' : 'Padrão: ' + cert.slice(0, 2) + '-00000000/SIF/26 (ano com 2 dígitos).');
+      dg = certKey(cert) || dg;
       var km = function (f) { return f.key && (f.key === k || (k.length > 4 && f.key.indexOf(k) >= 0)); };
       var doc = resp.find(function (f) { return km(f) && f.type === tipoPscf; }) || resp.find(km) ||
         (dg.length >= 6 ? resp.find(function (f) { return f.parsed && f.parsed.text.split(/\s+/).some(function (t) { var x = t.replace(/\D/g, ''); return x.length >= 6 && (x === dg || x.indexOf(dg) >= 0); }); }) : null);
@@ -1164,7 +1185,8 @@ else if (typeof exports === 'object')
           if (l.sif && row.sifs.indexOf(l.sif) < 0 && norm(D.text).indexOf('SIF ' + l.sif) < 0 && norm(D.text).indexOf('SIF' + l.sif) < 0) warns.push('SIF ' + l.sif + ' não encontrado no item');
           var pk = row.label; perRow[pk] = perRow[pk] || { row: row, vol: 0, pl: 0 }; perRow[pk].vol += l.vol || 0; perRow[pk].pl += l.pl || 0;
         }
-        if (destino) { var ch = checaHab(rgOf(l), h.list, doc.type, doc); ch.probs.forEach(function (x) { probs.push(x); }); ch.warns.forEach(function (x) { if (warns.indexOf(x) < 0) warns.push(x); }); }
+        if (row && row.habilFalta) probs.push('o item ' + row.label + ' não aparece na habilitação das Observações (itens citados: ' + row.habilFalta + ')');
+        else if (destino) { var ch = checaHab(rgOf(l), h.list, doc.type, doc); ch.probs.forEach(function (x) { probs.push(x); }); ch.warns.forEach(function (x) { if (warns.indexOf(x) < 0) warns.push(x); }); }
         if (l.marca && norm(D.text).indexOf(norm(l.marca)) < 0 && doc.type === 'csn') probs.push('marca ' + l.marca + ' não aparece no ' + tipo);
         probs.forEach(function (x) { addG('err', x, l.lote); }); warns.forEach(function (x) { addG('warn', x, l.lote); });
         lotRows.push({ l: l, row: row, hab: h, doc: doc, st: probs.length ? 'err' : warns.length ? 'warn' : 'ok', msg: probs.concat(warns).join('; ') });
@@ -1261,7 +1283,7 @@ else if (typeof exports === 'object')
     $('out').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
   render();
-  window.__hub = { files: function () { return files; }, analyse: analyse, regra: regra, checaHab: checaHab, regraTxt: regraTxt };
+  window.__hub = { files: function () { return files; }, analyse: analyse, parseRespaldo: parseRespaldo, regra: regra, checaHab: checaHab, regraTxt: regraTxt };
 })();
 
 </script>
