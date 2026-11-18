@@ -1,0 +1,49 @@
+<main>
+  <header>
+    <div class="logo"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9"/></svg></div>
+    <div class="grow">
+      <h1>Conferência de respaldo do HUB</h1>
+      <p class="sub">PSCF e Anexo IV × CSN, CSI, DCPOA e SIGSIF da carga que sai do armazenador</p>
+    </div>
+    <button id="theme" title="Modo claro / escuro" aria-label="Modo claro / escuro">
+      <svg class="moon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+      <svg class="sun" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+    </button>
+  </header>
+
+  <div class="badges">
+    <span class="badge"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg>Funciona sem internet</span>
+    <span class="badge"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg>Nada sai do seu computador</span>
+    <span class="badge"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg>Lê PDF escaneado (OCR)</span>
+  </div>
+
+  <section class="panel">
+    <div class="drop" id="drop" tabindex="0" role="button">
+      <div class="dropicon"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg></div>
+      <strong>Solte aqui todos os arquivos da carga</strong>
+      <span>Relatório PSCF 7446 (Excel ou PDF), Anexo IV e os documentos de respaldo (CSN, CSI, DCPOA, SIGSIF)</span><br>
+      <span class="pick">Escolher arquivos</span>
+      <input type="file" id="file" multiple accept=".pdf,.xlsx,.xlsm" hidden>
+    </div>
+    <ul class="flist" id="flist"></ul>
+    <div class="row" id="acts">
+      <label class="chk"><input type="checkbox" id="forceocr"> Forçar OCR em todos os PDFs</label>
+      <div>
+        <button class="btn ghost" id="clear">Limpar</button>
+        <button class="btn" id="run" disabled>Conferir</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="out" class="hide"></section>
+
+  <div class="limits">
+    <b>Como usar</b>
+    <ul>
+      <li>O tipo de cada arquivo é reconhecido sozinho. Se errar, troque na lista antes de conferir.</li>
+      <li>No documento escaneado, confira o número lido pelo OCR e corrija no campo, se precisar.</li>
+      <li>Aviso não é erro: é ponto para olhar no documento (ex.: rótulo que o CSI não traz).</li>
+    </ul>
+  </div>
+  <footer>Conferência de respaldo do HUB · v1.7</footer>
+</main>
