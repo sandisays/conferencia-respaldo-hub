@@ -1260,7 +1260,7 @@
     return '<!DOCTYPE html><html lang="pt-BR" data-theme="light"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
       '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'; font-src data:; img-src data:">' +
       '<title>' + esc(nomeBase()) + '</title><style>' + css + '</style></head><body class="snap"><main>' + head.outerHTML + out.innerHTML +
-      '<footer>' + esc(document.querySelector('footer').textContent) + '</footer></main></body></html>';
+      '<footer>' + esc($('versao').textContent) + ' · Desenvolvido por Sandi Fernanda dos Santos · Tudo conferido no próprio computador, sem envio de dados</footer></main></body></html>';
   }
   function ligaFerramentas() {
     var abre = function (v) { Array.prototype.forEach.call(document.querySelectorAll('#out details.blk'), function (d) { d.open = v; }); };
@@ -1437,6 +1437,18 @@
   $('pastaIn').addEventListener('cancel', function () { alertaPasta('warn', 'Nenhuma pasta chegou à ferramenta.', 'Se você escolheu a pasta, tente arrastá-la do Explorador de Arquivos para cá.'); });
   Promise.race([lembrada(), new Promise(function (ok) { setTimeout(function () { ok(null); }, 2500); })]).then(function (h) { if (h && h.kind === 'directory') { PASTA_H = h; mostraUltima(); } });
   document.addEventListener('click', function (e) { var b = e.target.closest && e.target.closest('[data-alt]'); if (b) modoAlt(); });
+
+  /* ---------- política de privacidade ---------- */
+  $('abrePriv').onclick = function (e) { e.preventDefault(); $('privMsg').textContent = ''; try { $('priv').showModal(); } catch (x) { $('priv').setAttribute('open', ''); } };
+  $('fechaPriv').onclick = function () { $('priv').close ? $('priv').close() : $('priv').removeAttribute('open'); };
+  $('priv').addEventListener('click', function (e) { if (e.target === this) this.close(); });
+  $('apagaDados').onclick = function () {
+    try { ['hub-nome', 'hub-tema', 'hub-pasta-modo'].forEach(function (k) { localStorage.removeItem(k); }); } catch (e) {}
+    try { indexedDB.deleteDatabase('hub-respaldo'); } catch (e) {}
+    PASTA_H = null; MODO_ALT = false; var b = $('pasta'); if (b && b.lastChild) b.lastChild.textContent = 'Buscar respaldos na pasta'; $('pastaOutra').classList.add('hide');
+    var n = $('nome'); if (n) n.value = '';
+    $('privMsg').textContent = 'Pronto: os dados salvos neste navegador foram apagados.';
+  };
 
   render();
   window.__hub = { files: function () { return files; }, parseDcpoa: parseDcpoa, parseHash: parseHash, parseSigExp: parseSigExp, parsePSCF: parsePSCF, parseAnexo: parseAnexo, analyse: analyse, parseRespaldo: parseRespaldo, regra: regra, checaHab: checaHab, regraTxt: regraTxt };

@@ -57,5 +57,33 @@
       <li>Para imprimir, baixar a página ou o compilado, preencha o seu nome: ele vai na marca d'água junto com a data.</li>
     </ul>
   </div>
-  <footer>Conferência de respaldo do HUB · v2.12</footer>
+  <footer><span id="versao">Conferência de respaldo do HUB · v2.13</span> · Desenvolvido por Sandi Fernanda dos Santos · <a href="#" id="abrePriv">Política de privacidade</a></footer>
+  <dialog id="priv" aria-labelledby="privT">
+    <div class="dhead"><h2 id="privT">Política de privacidade</h2><button class="xrm" id="fechaPriv" title="Fechar" aria-label="Fechar">×</button></div>
+    <div class="dbody">
+      <p><b>Conferência de respaldo do HUB</b> · ferramenta de uso interno da equipe de Certificação (CCS), desenvolvida por Sandi Fernanda dos Santos.</p>
+      <h3>O que acontece com os seus arquivos</h3>
+      <ul>
+        <li>Tudo é lido e conferido <b>no seu próprio computador</b>, dentro do navegador. Nenhum arquivo, número ou texto é enviado para a internet ou para qualquer servidor.</li>
+        <li>A própria página bloqueia qualquer envio de dados: ela funciona sem internet, inclusive a leitura de PDF escaneado e das fotos (OCR).</li>
+        <li>Os arquivos que você coloca na ferramenta <b>não ficam guardados</b>: ao fechar ou recarregar a página, eles somem.</li>
+        <li>Quando você busca respaldos numa pasta, a ferramenta só olha o <b>nome</b> dos arquivos e abre apenas os que batem com os números da carga.</li>
+      </ul>
+      <h3>O que fica guardado no navegador</h3>
+      <ul>
+        <li>O <b>nome de quem conferiu</b>, para não precisar digitar de novo.</li>
+        <li>A preferência de <b>modo claro ou escuro</b>.</li>
+        <li>A <b>última pasta</b> usada na busca de respaldos e o jeito de busca que funcionou (só a referência da pasta, não os arquivos).</li>
+      </ul>
+      <p>Esses dados ficam só neste navegador, neste computador. Não há cookies, cadastro, rastreamento nem estatística de uso.</p>
+      <h3>Arquivos que você baixa</h3>
+      <ul>
+        <li>A página baixada, o PDF impresso e o compilado (.zip) levam a marca d'água <b>USO INTERNO SEARA</b>, a data e o seu nome.</li>
+        <li>Os documentos da carga podem ter dados pessoais (nomes, CPF de quem assina, placas). Guarde e compartilhe esses arquivos só pelos canais internos da empresa, conforme a LGPD e as regras da Seara.</li>
+      </ul>
+      <h3>Apagar o que ficou salvo</h3>
+      <p>O botão abaixo apaga o nome, a preferência de tema, a última pasta e o jeito de busca guardados neste navegador.</p>
+      <div class="row"><span class="sub" id="privMsg"></span><button class="btn ghost" id="apagaDados">Apagar dados salvos</button></div>
+    </div>
+  </dialog>
 </main>
