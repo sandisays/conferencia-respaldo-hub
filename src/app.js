@@ -945,9 +945,11 @@
     var sifs = Array.from(new Set(P.lines.map(function (l) { return l.sif; }).concat(A ? A.prods.map(function (p) { return p.sif; }) : []).filter(Boolean))).sort(function (a, b) { return a - b; });
     var cont = P.container || (A && A.container) || '', dtc = P.dtCarreg || (A && A.dtCarreg) || '';
     var dq = function (t, v) { return '<div><span>' + t + '</span>' + (v ? '<b>' + esc(v) + '</b>' : '<b class="vazio">não encontrado</b>') + '</div>'; };
-    CARGA = { oc: P.oc, ref: P.ref, destino: P.destino || (A && A.destino) || '', container: cont, dtCarreg: dtc };
-    h += '<div class="panel"><div class="phead"></div><div class="dq">' + dq('O.C.', P.oc) + dq('Container', cont) + dq('Data de carregamento', dtc) + dq('SIF da carga', sifs.join(' · ')) + '</div>' +
-      '<div class="ctx"><span>Destino: <b>' + esc(P.destino || (A && A.destino) || '—') + '</b></span><span>Referência: <b>' + esc(P.ref || '—') + '</b></span>' +
+    // O.C. de exportação = número da LCAT (referência do PSCF) / relatório de embarque do Anexo IV; a O.C. do PSCF é outra
+    var ocExp = ((/LCAT\D{0,5}(\d{5,9})/i.exec(P.ref || '') || /(\d{6,9})/.exec(P.ref || '') || [])[1]) || (A && A.embarque) || '';
+    CARGA = { oc: ocExp, ocPscf: P.oc, ref: P.ref, destino: P.destino || (A && A.destino) || '', container: cont, dtCarreg: dtc };
+    h += '<div class="panel"><div class="phead"></div><div class="dq">' + dq('O.C. de exportação', ocExp) + dq('Container', cont) + dq('Data de carregamento', dtc) + dq('SIF da carga', sifs.join(' · ')) + '</div>' +
+      '<div class="ctx"><span>Destino: <b>' + esc(P.destino || (A && A.destino) || '—') + '</b></span><span>Referência: <b>' + esc(P.ref || '—') + '</b></span>' + (P.oc ? '<span>O.C. do PSCF: <b>' + esc(P.oc) + '</b></span>' : '') +
       (A ? '<span>Anexo IV: <b>' + esc(A.numero || '—') + '</b></span><span>Sai do SIF: <b>' + esc(A.sif || '—') + '</b></span>' : '') + '</div>';
     var SPN = { AVES: 'aves', BOVIN: 'bovinos', SUIN: 'suínos', PESCADO: 'pescado', OVO: 'ovos', LACTEO: 'lácteos', MEL: 'mel' }, vistos = {};
     Object.keys(RG || {}).forEach(function (d) { var R = RG[d], sp = (R.sp || []).map(function (x) { return SPN[x]; }).join(', '), t = regraTxt(R), kk = (R.pais || R.destino) + sp + t + R.epoa + R.epoaOk; if (vistos[kk]) return; vistos[kk] = 1;
@@ -1009,7 +1011,7 @@
     var destN = N ? Array.from(new Set(Object.keys(N.destinos).map(function (k) { return N.destinos[k]; }))).join(' / ') : '';
     var t1 = N && N.temps['1'] ? N.temps['1'] : {};
     var R = [
-      { c: 'O.C.', n: 'num', v: { p: P.oc, h: H && H.oc } },
+      { c: 'O.C. do PSCF', n: 'num', v: { p: P.oc, h: H && H.oc } },
       { c: 'Relatório de embarque', n: 'num', v: { p: dig(P.ref), a: A && A.embarque, h: H && H.ordem, n: codN } },
       { c: 'Destino', n: 'dest', v: { p: P.destino, a: A && A.destino, h: H && H.destino, n: destN } },
       { c: 'Container', n: 'txt', v: { p: P.container, h: H && H.container, n: N && N.contentor, s: S && S.container } },
