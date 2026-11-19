@@ -221,7 +221,7 @@
       <li>Para imprimir, baixar a página ou o compilado, preencha o seu nome: ele vai na marca d'água junto com a data.</li>
     </ul>
   </div>
-  <footer>Conferência de respaldo do HUB · v2.3</footer>
+  <footer>Conferência de respaldo do HUB · v2.4</footer>
 </main>
 
 <script>/**
@@ -1737,17 +1737,29 @@ else if (typeof exports === 'object')
   // ou fica só o primeiro número ("003364"). forte = número + SIF; fraco = só o primeiro número (confere o conteúdo antes)
   function partesNum(num) { var u = norm(num).replace(/^[A-Z0-9]{2}-(?=\d{8})/, ''), p = u.split(/\s*\/\s*/).map(function (x) { return x.replace(/\D/g, ''); }); return { main: p[0] || '', sif: p[1] || '', ano: p[2] || '' }; }
   function casaNome(nome, keys, req) {
-    var base = String(nome).replace(/\.[^.]+$/, ''), tk = base.replace(/\D+/g, ' ').trim().split(' ').filter(Boolean), out = [];
+    var base = String(nome).replace(/\.(pdf|xlsx|xlsm|jpe?g|png|webp|bmp)$/i, '').replace(/\(\d+\)/g, ' '), out = [];
+    // números depois de "SUB" são da DCPOA substituída
+    var tk = [], subDesde = Infinity, re = /\d+|\bSUB\b/gi, m;
+    while ((m = re.exec(base))) { if (/^sub$/i.test(m[0])) { if (subDesde === Infinity) subDesde = tk.length; } else tk.push(m[0]); }
     keys.forEach(function (k) {
       var P = partesNum(req[k] || k); if (!P.main) return;
-      var i = tk.indexOf(P.main), forte = false, ok = false;
-      if (i < 0 && P.main.length === 8) { if (base.replace(/\D/g, '').indexOf(P.main) >= 0) { ok = forte = true; } }
-      if (i >= 0) { var nx = tk[i + 1];
-        if (P.main.length === 8) ok = forte = true; // número do CSN/CSI é único
-        else if (nx === P.sif) ok = forte = true; // 003364-3837-26
-        else if (!nx || nx.length < 2 || nx.length > 5 || /\(\d+\)/.test(base)) ok = true; // 003364, "003364 (1)": confere o conteúdo
-      }
-      if (ok) out.push({ k: k, forte: forte });
+      var melhor = null;
+      tk.forEach(function (t, i) {
+        if (t !== P.main) return;
+        var r = null;
+        if (P.main.length === 8) r = 'forte'; // número do CSN/CSI é único
+        else {
+          var j = i + 1; while (tk[j] && tk[j].length === P.main.length && j < subDesde) j++; // 002373_002372_1215_26
+          var nx = tk[j];
+          if (!nx || j >= subDesde && i < subDesde) r = 'fraco'; // só o número: confere o conteúdo
+          else if (nx.length <= 5 && +nx === +P.sif) { var ano = tk[j + 1]; r = (ano && ano.length <= 4 && P.ano && ano.slice(-2) !== P.ano.slice(-2)) ? null : 'forte'; }
+        }
+        if (!r) return;
+        var sub = i >= subDesde; if (sub) r = 'sub';
+        if (!melhor || (melhor === 'sub' && r !== 'sub') || (melhor === 'fraco' && r === 'forte')) melhor = r;
+      });
+      if (!melhor && P.main.length === 8 && base.replace(/\D/g, '').indexOf(P.main) >= 0) melhor = 'forte';
+      if (melhor) out.push({ k: k, forte: melhor === 'forte', sub: melhor === 'sub' });
     });
     return out;
   }
@@ -1772,14 +1784,17 @@ else if (typeof exports === 'object')
   }
   async function escolhe(cands, F) { // um arquivo por certificado: nome forte primeiro, depois PDF, depois o mais recente
     var melhor = function (a, b) { if (a.forte !== b.forte) return a.forte ? a : b; var pa = /\.pdf$/i.test(a.f.name), pb = /\.pdf$/i.test(b.f.name); if (pa !== pb) return pa ? a : b; return a.f.lastModified >= b.f.lastModified ? a : b; };
-    var porK = {}; cands.forEach(function (c) { c.ks.forEach(function (x) { (porK[x.k] = porK[x.k] || []).push({ f: c.f, forte: x.forte }); }); });
-    var por = {};
+    var porK = {}; cands.forEach(function (c) { c.ks.forEach(function (x) { (porK[x.k] = porK[x.k] || []).push({ f: c.f, forte: x.forte, sub: x.sub }); }); });
+    var por = {}, subs = [];
     for (var k in porK) {
+      var sb = porK[k].filter(function (c) { return c.sub; }); porK[k] = porK[k].filter(function (c) { return !c.sub; });
+      if (!porK[k].length) { if (sb.length) subs.push(F.req[k] + ' foi substituída (arquivo "' + sb[0].f.name + '")'); continue; }
       var lst = porK[k].slice().sort(function (a, b) { return melhor(a, b) === a ? -1 : 1; });
       for (var i = 0; i < lst.length; i++) { if (lst[i].forte || await temNumero(lst[i].f, F.req[k])) { por[k] = lst[i]; break; } }
     }
     var ach = [], vis = new Set(); Object.keys(por).forEach(function (k) { if (!vis.has(por[k].f)) { vis.add(por[k].f); ach.push(por[k].f); } });
     var nf = F.keys.filter(function (k) { return !por[k]; }).map(function (k) { return F.req[k]; });
+    if (subs.length) W0 = 'Atenção: ' + subs.join('; ') + '. Confira se o PSCF está com o número da DCPOA nova. ' + W0;
     if (!ach.length) { alertaPasta('err', 'Não achei nenhum dos ' + F.keys.length + ' respaldos nesta pasta.', 'Procurei pelo número no nome do arquivo (ex.: N0-00598842-3837-26 ou 003364-3837-26): ' + F.keys.map(function (k) { return F.req[k]; }).join(', ') + '. ' + W0); W0 = ''; return; }
     alertaPasta(nf.length ? '' : 'ok', 'Achei ' + Object.keys(por).length + ' de ' + F.keys.length + ' respaldos e coloquei na lista.', (nf.length ? 'Não achei: ' + nf.join(', ') + '. ' : '') + W0); W0 = '';
     var jaConferiu = !$('out').classList.contains('hide');
@@ -1787,7 +1802,7 @@ else if (typeof exports === 'object')
     if (jaConferiu) queue.then(function () { $('run').click(); }); // confere de novo com os respaldos novos
   }
   var REQ = {}, W0 = '';
-  var ACEITA = /\.(pdf|xlsx|xlsm)$/i;
+  var ACEITA = /\.(pdf|jpe?g|png)$/i; // respaldo é PDF ou foto; planilha com o mesmo número (ex.: relatório) fica de fora
   // olha primeiro os arquivos da pasta, depois as subpastas; para quando todos os números foram achados pelo nome completo
   async function varre(dir, keys, out, prof, cont) {
     var subs = [];
