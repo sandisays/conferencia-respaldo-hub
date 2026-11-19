@@ -201,7 +201,7 @@
     <div class="drop" id="drop" tabindex="0" role="button">
       <div class="dropicon"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg></div>
       <strong>Solte aqui todos os arquivos da carga</strong>
-      <span>Relatório PSCF 7446 (Excel ou PDF), Anexo IV, respaldos (CSN, CSI, DCPOA, SIGSIF) e, se quiser, HashData, nova DCPOA, SIGSIF da exportação, NF e croqui. Aceita foto (OCR).</span><br>
+      <span>Relatório PSCF 7446 (Excel ou PDF), Anexo IV, respaldos (CSN, CSI, DCPOA, SIGSIF) e, se quiser, HashData, DCPOA emitida, SIGSIF da exportação, NF e croqui. Aceita foto (OCR).</span><br>
       <span class="pick">Escolher arquivos</span>
       <input type="file" id="file" multiple accept=".pdf,.xlsx,.xlsm,.jpg,.jpeg,.png,.webp,.bmp" hidden>
     </div>
@@ -234,7 +234,7 @@
       <li>Para imprimir, baixar a página ou o compilado, preencha o seu nome: ele vai na marca d'água junto com a data.</li>
     </ul>
   </div>
-  <footer>Conferência de respaldo do HUB · v2.5</footer>
+  <footer>Conferência de respaldo do HUB · v2.6</footer>
 </main>
 
 <script>/**
@@ -757,7 +757,7 @@ else if (typeof exports === 'object')
     if (/SIGSIF/.test(U.slice(0, 1500))) return 'sigsif';
     return 'outro';
   }
-  var TYPES = { pscf: 'Relatório PSCF 7446', anexo4: 'Anexo IV', csn: 'CSN', csi: 'CSI', dcpoa: 'DCPOA', sigsif: 'SIGSIF', hashdata: 'HashData (guia de carregamento)', dcpoanova: 'Nova DCPOA emitida', sigsifexp: 'SIGSIF da exportação', nf: 'Nota fiscal', croqui: 'Croqui', ficha: 'Ficha do SIF', outro: 'Não reconhecido' };
+  var TYPES = { pscf: 'Relatório PSCF 7446', anexo4: 'Anexo IV', csn: 'CSN', csi: 'CSI', dcpoa: 'DCPOA', sigsif: 'SIGSIF', hashdata: 'HashData (guia de carregamento)', dcpoanova: 'DCPOA emitida', sigsifexp: 'SIGSIF da exportação', nf: 'Nota fiscal', croqui: 'Croqui', ficha: 'Ficha do SIF', outro: 'Não reconhecido' };
   function numPadrao(n) { n = String(n).trim(); return /^[NI]\d-\d{8}\/[A-Z0-9]+(?:-[A-Z]+)?\/\d{2}$/.test(n) || /^\d{6}\/\d{2,5}\/\d{2}$/.test(n); }
   function tipoNum(n) { n = norm(n).trim(); return /^N\d-/.test(n) ? 'csn' : /^I\d-/.test(n) ? 'csi' : 'dcpoa'; }
   function isResp(t) { return t === 'csn' || t === 'csi' || t === 'dcpoa' || t === 'sigsif'; }
@@ -1458,7 +1458,7 @@ else if (typeof exports === 'object')
         if (row && row.habilFalta) probs.push('o item ' + row.label + ' não aparece na habilitação por item do documento (' + (D.habilFonte || 'Observações') + '; itens citados: ' + row.habilFalta + ')');
         else if (destino) { var ch = checaHab(rgOf(l), h.list, doc.type, doc);
           var lib = doc.type === 'dcpoa' && EXP.N && EXP.N.oficio && EXP.N.transito.some(function (t) { return certKey(t) === doc.key; });
-          if (lib) ch.probs = ch.probs.filter(function (x) { if (/NAO PODE SER DCPOA DE TRANSITO/.test(norm(x))) { warns.push('DCPOA de trânsito em destino que exige habilitação: a nova DCPOA cita o ' + EXP.N.oficio.replace(/\s+/g, ' ') + '; confirmar se o produto e o destino estão cobertos'); return false; } return true; });
+          if (lib) ch.probs = ch.probs.filter(function (x) { if (/NAO PODE SER DCPOA DE TRANSITO/.test(norm(x))) { warns.push('DCPOA de trânsito em destino que exige habilitação: a DCPOA emitida cita o ' + EXP.N.oficio.replace(/\s+/g, ' ') + '; confirmar se o produto e o destino estão cobertos'); return false; } return true; });
           ch.probs.forEach(function (x) { probs.push(x); }); ch.warns.forEach(function (x) { if (warns.indexOf(x) < 0) warns.push(x); }); }
         if (l.marca && norm(D.text).indexOf(norm(l.marca)) < 0 && doc.type === 'csn') probs.push('marca ' + l.marca + ' não aparece no ' + tipo);
         probs.forEach(function (x) { addG('err', x, l.lote); }); warns.forEach(function (x) { addG('warn', x, l.lote); });
@@ -1573,7 +1573,7 @@ else if (typeof exports === 'object')
     $('out').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
-  /* ---------- documentos da exportação: HashData, nova DCPOA, SIGSIF, NF e croqui ---------- */
+  /* ---------- documentos da exportação: HashData, DCPOA emitida, SIGSIF, NF e croqui ---------- */
   var dig = function (x) { return String(x || '').replace(/\D/g, ''); };
   var NORMS = {
     num: function (x) { return dig(x); }, txt: function (x) { return norm(x).replace(/[^A-Z0-9]/g, ''); },
@@ -1582,7 +1582,7 @@ else if (typeof exports === 'object')
   };
   function confereExportacao(P, A, X, E, W) {
     var H = X.H, N = X.N, S = X.S, cols = [{ k: 'p', t: 'PSCF' }];
-    if (A) cols.push({ k: 'a', t: 'Anexo IV' }); if (H) cols.push({ k: 'h', t: 'HashData' }); if (N) cols.push({ k: 'n', t: 'Nova DCPOA' }); if (S) cols.push({ k: 's', t: 'SIGSIF' });
+    if (A) cols.push({ k: 'a', t: 'Anexo IV' }); if (H) cols.push({ k: 'h', t: 'HashData' }); if (N) cols.push({ k: 'n', t: 'DCPOA emitida' }); if (S) cols.push({ k: 's', t: 'SIGSIF' });
     if (!H && !N && !S) return { cols: cols, rows: [] };
     var sumA = function (f) { if (!A) return null; var t = 0, any = false; A.prods.forEach(function (p) { p.lots.forEach(function (l) { if (l[f] != null) { t += l[f]; any = true; } }); }); return any ? t : null; };
     var sumP = function (f) { var t = 0; P.lines.forEach(function (l) { t += l[f] || 0; }); return P.lines.length ? t : null; };
@@ -1605,7 +1605,7 @@ else if (typeof exports === 'object')
       { c: 'Termógrafo', n: 'txt', v: { p: P.termografo, h: H && H.termografo } },
       { c: 'Volumes', n: 'num', f: 0, v: { p: P.totVol != null ? P.totVol : sumP('vol'), a: sumA('vol'), n: N && N.totVol, s: S && S.totVol } },
       { c: 'Peso líquido (kg)', n: 'q', f: 3, v: { p: P.totPL != null ? P.totPL : sumP('pl'), a: sumA('pl'), n: N && N.totPeso, s: S && S.totPL } },
-      { c: 'Nº da nova DCPOA', n: 'txt', v: { n: N && N.numero, s: S && S.dcpoa } },
+      { c: 'Nº da DCPOA emitida', n: 'txt', v: { n: N && N.numero, s: S && S.dcpoa } },
       { c: 'Referência SIGSIF', n: 'num', v: { a: A && A.sigsif, s: S && S.ref } }
     ];
     var tem = {}; cols.forEach(function (c) { tem[c.k] = 1; });
@@ -1618,13 +1618,13 @@ else if (typeof exports === 'object')
         if (vs.length > 1) { var cnt = {}; ks.forEach(function (k) { cnt[nv[k]] = (cnt[nv[k]] || 0) + 1; }); var maj = Object.keys(cnt).sort(function (a, b) { return cnt[b] - cnt[a]; })[0]; r.bad = cnt[maj] > 1 ? ks.filter(function (k) { return nv[k] !== maj; }) : ks; } }
       if (r.st === 'err') E(r.c + ' diferente entre os documentos da exportação.', ks.map(function (k) { return cols.find(function (c) { return c.k === k; }).t + ': ' + fmtV(r, r.v[k]); }).join(' · '));
     });
-    // nova DCPOA
+    // DCPOA emitida
     if (N) {
-      if (N.finalidade && !/SOLICITACAO/.test(N.finalidade)) W('Nova DCPOA: a finalidade é "' + N.finalidade + '".', 'Para a exportação o esperado é Solicitação de Certificado Sanitário.');
-      if (A && A.sif && N.sifExp && N.sifExp !== A.sif) E('Nova DCPOA emitida pelo SIF ' + N.sifExp + ', mas a carga sai do SIF ' + A.sif + '.', '');
+      if (N.finalidade && !/SOLICITACAO/.test(N.finalidade)) W('DCPOA emitida: a finalidade é "' + N.finalidade + '".', 'Para a exportação o esperado é Solicitação de Certificado Sanitário.');
+      if (A && A.sif && N.sifExp && N.sifExp !== A.sif) E('DCPOA emitida pelo SIF ' + N.sifExp + ', mas a carga sai do SIF ' + A.sif + '.', '');
       var porRot = {}; P.lines.forEach(function (l) { (porRot[l.rotulo] = porRot[l.rotulo] || []).push(l); });
       N.prods.forEach(function (pr) {
-        var ls = porRot[pr.rotulo], tag = 'Nova DCPOA, produto ' + pr.n + ' (' + (pr.rotulo || 'sem rótulo') + ')';
+        var ls = porRot[pr.rotulo], tag = 'DCPOA emitida, produto ' + pr.n + ' (' + (pr.rotulo || 'sem rótulo') + ')';
         if (!ls) { E(tag + ': rótulo não está no PSCF.', 'Rótulos do PSCF: ' + Object.keys(porRot).join(', ')); return; }
         var marcas = Array.from(new Set(ls.map(function (l) { return norm(l.marca); }).filter(Boolean)));
         if (pr.marca && marcas.length && marcas.indexOf(norm(pr.marca)) < 0) E(tag + ': marca ' + pr.marca + ' × ' + marcas.join(', ') + ' no PSCF.', '');
@@ -1635,7 +1635,7 @@ else if (typeof exports === 'object')
         if (dp.length && pr.prodIni && (dmy(pr.prodIni) !== dp[0] || dmy(pr.prodFim) !== dp[dp.length - 1])) E(tag + ': produção ' + pr.prodIni + ' a ' + pr.prodFim + ' × ' + showD(dp[0]) + ' a ' + showD(dp[dp.length - 1]) + ' no PSCF.', '');
         if (dv.length && pr.valIni && (dmy(pr.valIni) !== dv[0] || dmy(pr.valFim) !== dv[dv.length - 1])) E(tag + ': validade ' + pr.valIni + ' a ' + pr.valFim + ' × ' + showD(dv[0]) + ' a ' + showD(dv[dv.length - 1]) + ' no PSCF.', '');
         var emb = (A && A.embarque) || dig(P.ref); if (pr.codigo && emb && pr.codigo !== emb) E(tag + ': código de rastreabilidade ' + pr.codigo + ', mas o relatório de embarque é ' + emb + '.', '');
-        if (ls[0].prod && nameScore(ls[0].prod.desc, pr.nome) < 0.75) W(tag + ': nomenclatura diferente do PSCF.', 'Nova DCPOA: ' + pr.nome + ' · PSCF: ' + ls[0].prod.desc);
+        if (ls[0].prod && nameScore(ls[0].prod.desc, pr.nome) < 0.75) W(tag + ': nomenclatura diferente do PSCF.', 'DCPOA emitida: ' + pr.nome + ' · PSCF: ' + ls[0].prod.desc);
         var lp = Array.from(new Set(ls.map(function (l) { return l.lote; })));
         if (!pr.lotes.length) { if (!N.lotesNoAnexo) E(tag + ': lote não informado e as observações não remetem ao Anexo IV.', 'Lotes do PSCF: ' + lp.join(', ')); }
         else { var falta = lp.filter(function (x) { return pr.lotes.indexOf(x) < 0; }), sobra = pr.lotes.filter(function (x) { return lp.indexOf(x) < 0; });
@@ -1643,15 +1643,15 @@ else if (typeof exports === 'object')
         var dpr = N.destinos[pr.n]; if (dpr && P.destino && cl(dpr).indexOf(cl(P.destino)) < 0) E(tag + ': destino ' + dpr + ', mas a carga vai para ' + P.destino + '.', '');
         var tp = N.temps[pr.n]; if (tp && t1.ini && (tp.ini !== t1.ini || tp.meio !== t1.meio || tp.fim !== t1.fim)) W(tag + ': temperaturas diferentes do produto 1.', '');
       });
-      Object.keys(porRot).forEach(function (r) { if (!N.prods.some(function (p) { return p.rotulo === r; })) E('Nova DCPOA não traz o rótulo ' + r + ', que está no PSCF.', ''); });
-      if (A && A.numero) { var an = dig(A.numero.replace(/\(.*\)/, '')); if (!N.anexo4) W('Nova DCPOA não cita o Anexo IV nos documentos de respaldo.', 'Anexo IV: ' + A.numero); else if (dig(N.anexo4) !== an) E('Nova DCPOA cita o Anexo IV nº ' + N.anexo4 + ', mas o Anexo IV carregado é o ' + A.numero + '.', ''); }
-      if (X.nf.length) X.nf.forEach(function (nf) { if (nf.numero && N.nfs.map(function (x) { return String(+x); }).indexOf(nf.numero) < 0) E('Nova DCPOA não cita a nota fiscal ' + nf.numero + '.', 'Notas citadas: ' + (N.nfs.join(', ') || 'nenhuma')); });
-      else if (!N.nfs.length) W('Nova DCPOA não cita nota fiscal nos documentos de respaldo.', '');
-      Object.keys(porRot).forEach(function (r) { if (r && N.croquis.indexOf(r) < 0) W('Nova DCPOA não cita o croqui do rótulo ' + r + '.', 'Croquis citados: ' + (N.croquis.join(', ') || 'nenhum')); });
-      X.croqui.forEach(function (c) { if (c.rotulo && !N.croquis.some(function (x) { return x.indexOf(c.rotulo + '/') === 0; })) W('Croqui do rótulo ' + c.rotulo + ' carregado, mas a nova DCPOA não cita.', ''); });
+      Object.keys(porRot).forEach(function (r) { if (!N.prods.some(function (p) { return p.rotulo === r; })) E('DCPOA emitida não traz o rótulo ' + r + ', que está no PSCF.', ''); });
+      if (A && A.numero) { var an = dig(A.numero.replace(/\(.*\)/, '')); if (!N.anexo4) W('DCPOA emitida não cita o Anexo IV nos documentos de respaldo.', 'Anexo IV: ' + A.numero); else if (dig(N.anexo4) !== an) E('DCPOA emitida cita o Anexo IV nº ' + N.anexo4 + ', mas o Anexo IV carregado é o ' + A.numero + '.', ''); }
+      if (X.nf.length) X.nf.forEach(function (nf) { if (nf.numero && N.nfs.map(function (x) { return String(+x); }).indexOf(nf.numero) < 0) E('DCPOA emitida não cita a nota fiscal ' + nf.numero + '.', 'Notas citadas: ' + (N.nfs.join(', ') || 'nenhuma')); });
+      else if (!N.nfs.length) W('DCPOA emitida não cita nota fiscal nos documentos de respaldo.', '');
+      Object.keys(porRot).forEach(function (r) { if (r && N.croquis.indexOf(r) < 0) W('DCPOA emitida não cita o croqui do rótulo ' + r + '.', 'Croquis citados: ' + (N.croquis.join(', ') || 'nenhum')); });
+      X.croqui.forEach(function (c) { if (c.rotulo && !N.croquis.some(function (x) { return x.indexOf(c.rotulo + '/') === 0; })) W('Croqui do rótulo ' + c.rotulo + ' carregado, mas a DCPOA emitida não cita.', ''); });
       var tdc = Array.from(new Set(P.lines.filter(function (l) { return l.cert && tipoNum(l.cert) === 'dcpoa'; }).map(function (l) { return l.cert; })));
-      tdc.forEach(function (c) { if (!N.transito.some(function (t) { return certKey(t) === certKey(c); })) W('Nova DCPOA não cita a DCPOA de trânsito ' + c + ' nas observações.', 'Ela é respaldo de lotes do PSCF.'); });
-      N.transito.forEach(function (t) { if (!tdc.some(function (c) { return certKey(c) === certKey(t); })) E('Nova DCPOA cita a DCPOA de trânsito ' + t + ', que o PSCF não usa.', ''); });
+      tdc.forEach(function (c) { if (!N.transito.some(function (t) { return certKey(t) === certKey(c); })) W('DCPOA emitida não cita a DCPOA de trânsito ' + c + ' nas observações.', 'Ela é respaldo de lotes do PSCF.'); });
+      N.transito.forEach(function (t) { if (!tdc.some(function (c) { return certKey(c) === certKey(t); })) E('DCPOA emitida cita a DCPOA de trânsito ' + t + ', que o PSCF não usa.', ''); });
     }
     // SIGSIF da exportação
     if (S) {
@@ -1730,7 +1730,7 @@ else if (typeof exports === 'object')
       try {
         var z = new JSZip(), base = nomeBase(), usados = {};
         z.file(base + '.html', paginaHtml());
-        var PASTA = { pscf: 'PSCF', anexo4: 'Anexo IV', hashdata: 'HashData', dcpoanova: 'Nova DCPOA', sigsifexp: 'SIGSIF da exportacao', nf: 'Nota fiscal', croqui: 'Croqui', ficha: 'Ficha do SIF' }, pasta = function (f) { return PASTA[f.type] || (isResp(f.type) ? 'Respaldos' : 'Outros'); };
+        var PASTA = { pscf: 'PSCF', anexo4: 'Anexo IV', hashdata: 'HashData', dcpoanova: 'DCPOA emitida', sigsifexp: 'SIGSIF da exportacao', nf: 'Nota fiscal', croqui: 'Croqui', ficha: 'Ficha do SIF' }, pasta = function (f) { return PASTA[f.type] || (isResp(f.type) ? 'Respaldos' : 'Outros'); };
         files.forEach(function (f) { if (!f.file) return; var n = pasta(f) + '/' + f.name, k = 1; while (usados[n]) n = pasta(f) + '/' + f.name.replace(/(\.[^.]+)?$/, ' (' + (++k) + ')$1'); usados[n] = 1; z.file(n, f.file); });
         baixar(await z.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } }), base + '.zip');
       } catch (e) { alertaPasta('err', 'Não consegui montar o compilado: ' + (e && e.message || e)); }
