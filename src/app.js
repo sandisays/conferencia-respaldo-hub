@@ -379,32 +379,38 @@
     D.lotesNoAnexo = /LOTES DESCRITOS NO RELATORIO DE RASTREABILIDADE|LOTES? DESCRITOS? NO ANEXO IV/.test(FF);
     return D;
   }
-  // HashData (guia de carregamento): pergunta → resposta
+  // HashData (guia de carregamento): pergunta → resposta, com a página de cada pergunta (para achar as fotos)
   function parseHash(pages) {
-    var H = { qa: {}, pagQ: {} }, ax = null, lastQ = null;
+    var H = { qa: {}, pagQ: {}, lista: [] }, ax = null;
     // coluna da resposta: onde começa a palavra que vem depois de um vão largo nas linhas "N. pergunta   resposta"
     var cands = []; pages.forEach(function (pg) { pg.lines.forEach(function (l) { if (!/^\d{1,3}\.\s/.test(l.text) || l.words.length < 2) return;
       for (var q = 1; q < l.words.length; q++) if (l.words[q].x0 - l.words[q - 1].x1 > 15 && l.words[q].x0 > (pg.w || 600) * 0.35) { cands.push(l.words[q].x0); break; } }); });
     if (cands.length) ax = Math.min.apply(null, cands) - 4;
+    var SKIP = /^(PERGUNTA|CRIACAO NO DISPOSITIVO|RECEBIMENTO NO SERVIDOR|PLAN_|MERCADORIAS_REV|QUALI9|ACOMPANHAMENTO \(FOLLOW-UP\)|\d+ \/ \d+$)/;
+    var ult = null;
     pages.forEach(function (pg) {
-      pg.lines.forEach(function (l) { var U = norm(l.text), m = /^(\d{1,3})\.\s*(.+)$/.exec(U); if (!m) return;
-        var q = l.words.filter(function (w) { return ax == null || w.x0 < ax; }).map(function (w) { return w.str; }).join(' '), a = l.words.filter(function (w) { return ax != null && w.x0 >= ax; }).map(function (w) { return w.str; }).join(' ');
-        H.qa[m[1]] = { q: norm(q).replace(/^\d{1,3}\.\s*/, '').trim(), a: a.trim() }; H.pagQ[m[1]] = pg.n; });
+      pg.lines.forEach(function (l) {
+        var esq = l.words.filter(function (w) { return ax == null || w.x0 < ax; }).map(function (w) { return w.str; }).join(' ').trim(),
+          dir = l.words.filter(function (w) { return ax != null && w.x0 >= ax; }).map(function (w) { return w.str; }).join(' ').trim();
+        if (SKIP.test(norm(esq || dir))) return;
+        var m = /^(\d{1,3})\.\s*(.+)$/.exec(esq);
+        if (m) { ult = { n: +m[1], label: m[2].trim(), value: dir, page: pg.n }; H.lista.push(ult); return; }
+        if (!ult || ult.page !== pg.n) return;
+        if (esq && !dir) { if (!/[?:]$/.test(ult.label)) ult.label += ' ' + esq; } // pergunta em duas linhas
+        else if (dir && !esq && !ult.value) ult.value = dir;                          // resposta na linha de baixo
+      });
     });
-    var ach = function (re, nao) { var k = Object.keys(H.qa).find(function (k) { var q = H.qa[k].q; return re.test(q) && !(nao && nao.test(q)); }); return k ? { n: k, a: H.qa[k].a } : null; }, x;
-    var v = function (re, nao) { x = ach(re, nao); return x ? x.a : ''; };
+    H.lista.forEach(function (x) { H.qa[x.n] = { q: norm(x.label), a: x.value }; H.pagQ[x.n] = x.page; });
+    var ach = function (re, nao) { var x = H.lista.find(function (x) { var q = norm(x.label); return re.test(q) && !(nao && nao.test(q)); }); return x ? x.value : ''; };
+    var v = ach;
     H.container = v(/N[°º]?\s*DO CONTEINER|N[°º]?\s*DO CONTAINER/).replace(/[\s-]/g, '');
-    H.tipoVeiculo = v(/TIPO DE VEICULO/); H.armador = v(/^ARMADOR/);
+    H.tipoVeiculo = v(/TIPO DE VEICULO/); H.armador = v(/^ARMADOR/); H.placa = v(/PLACA DA CARRETA|^PLACA/).replace(/[\s-]/g, '');
     H.oc = v(/OC\.?\s*PSCF/); H.ordem = v(/^ORDEM DE CARGA$/); H.destino = v(/^DESTINO$/); H.mercado = v(/^MERCADO$/);
     H.tIni = v(/^TEMPERATURA INICIO/); H.tMeio = v(/^TEMPERATURA MEIO/); H.tFim = v(/^TEMPERATURA FIM/); H.tMedia = v(/MEDIA DAS TEMPERATURAS/);
-    H.termografo = v(/NUMERO DO TERMOGRAFO/); H.lacre = v(/LACRE SIF/).replace(/\s/g, '');
+    H.termografo = v(/NUMERO DO TERMOGRAFO/); H.lacre = v(/LACRE SIF/, /FOTO/).replace(/\s/g, '');
+    H.lacreSeara = v(/LACRE (DA )?SEARA/, /FOTO/).replace(/\s/g, ''); H.lacreIntertek = v(/LACRE (DO )?(ARMADOR|INTERTEK)/, /FOTO/).replace(/\s/g, '');
     var dh = function (s) { var m = /(\d{2}\/\d{2}\/\d{4}),?\s*(\d{2}:\d{2})?/.exec(s || ''); return m ? { d: m[1], h: m[2] || '' } : { d: '', h: '' }; };
     H.verif = dh(v(/INICIO DA VERIFICACAO DO VEICULO/)); H.ini = dh(v(/INICIO DO CARREGAMENTO/)); H.fim = dh(v(/FIM DA OPERACAO/));
-    // páginas de fotos a ler com OCR: ordem de carga, termógrafo e lacre
-    var fotos = []; Object.keys(H.qa).forEach(function (k) { if (/FOTO DA ORDEM DE CARGA|FOTO DO TERMOGRAFO|NUMERO DO TERMOGRAFO|^FOTO DO LACRE$|LACRE SIF/.test(H.qa[k].q)) fotos.push(k); });
-    var qs = Object.keys(H.pagQ).map(Number).sort(function (x, y) { return x - y; });
-    H.fotoPags = []; fotos.forEach(function (k) { var pi = H.pagQ[k], nx = qs.find(function (q) { return q > +k; }), pf = nx ? H.pagQ[nx] : pi + 3; pf = Math.min(pf, pi + 5, pages.length);
-      for (var g = pi; g <= pf; g++) if (H.fotoPags.indexOf(g) < 0) H.fotoPags.push(g); });
     return H;
   }
   function parseSigExp(pages) {
@@ -950,7 +956,7 @@
     var errs = issues.filter(function (i) { return i.k === 'err'; }), wrs = issues.filter(function (i) { return i.k === 'warn'; });
     if (!issues.length) h += '<div class="allok">Tudo confere entre PSCF, Anexo IV e os documentos de respaldo.</div>';
     if (errs.length) h += '<h2>Divergências</h2><ul class="issues">' + errs.map(li).join('') + '</ul>';
-    if (issues.some(function (i) { return /não foi carregado\.$/.test(i.t); })) h += '<div class="row noprint" style="margin-top:10px"><span class="sub">Faltam respaldos? A ferramenta procura pelo número no nome do arquivo e confere de novo.</span><div><button class="btn ghost" id="pasta2">Buscar os que faltam na pasta</button></div></div><div id="pastaMsg2" class="pmsg noprint hide"></div>';
+    if (issues.some(function (i) { return /não foi carregado\.$/.test(i.t); })) h += '<div class="row noprint" style="margin-top:10px"><span class="sub">Faltam respaldos? A ferramenta procura pelo número no nome do arquivo, traz para a lista e confere de novo.</span><div><button class="btn ghost" id="pasta2">Buscar os que faltam na pasta</button></div></div><div class="sub noprint" style="margin-top:4px;text-align:right;font-size:12.5px">ou arraste a pasta do Explorador de Arquivos para esta página</div><div id="pastaMsg2" class="pmsg noprint hide"></div>';
     if (wrs.length) h += '<h2 style="margin-top:16px">Avisos</h2><ul class="issues">' + wrs.map(li).join('') + '</ul>';
     var nomeSalvo = ''; try { nomeSalvo = localStorage.getItem('hub-nome') || ''; } catch (e) {}
     h += '<div class="tools"><label class="nome">Conferido por <input id="nome" placeholder="seu nome" value="' + esc(nomeSalvo) + '" autocomplete="name"></label>' +
@@ -1084,27 +1090,151 @@
     var h = '<details class="blk" open><summary><h3>Documentos da exportação</h3></summary><div class="tw"><table class="grade"><thead><tr><th></th><th>Campo</th>' + G.cols.map(function (c) { return '<th>' + esc(c.t) + '</th>'; }).join('') + '</tr></thead><tbody>' +
       G.rows.map(function (r) { return '<tr class="' + (r.st === 'err' ? 'bad' : '') + '"><td>' + (r.st ? '<span class="ico ' + r.st + '">' + (r.st === 'ok' ? '✓' : '✕') + '</span>' : '') + '</td><td>' + esc(r.c) + '</td>' +
         G.cols.map(function (c) { var v = r.v[c.k], nc = r.nc && r.nc.indexOf(c.k) >= 0, bad = r.bad && r.bad.indexOf(c.k) >= 0; return '<td class="' + (nc ? 'nc' : '') + (bad ? ' x' : '') + '"' + (nc ? ' title="Horário do sistema: não entra na comparação"' : '') + '>' + esc(fmtV(r, v)) + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table></div>';
-    if (X.H) h += '<div class="fotos"><div><b>Fotos do HashData</b> <span class="sub">ordem de carga, termógrafo e lacre (' + X.H.fotoPags.length + ' pág.)</span></div><button class="btn ghost" id="lerFotos">Ler as fotos com OCR</button><div id="fotosRes" class="fres">' + (X.fH && X.fH.fotoRes ? X.fH.fotoRes : '') + '</div></div>';
+    if (X.H) h += '<div id="fotosBox" class="fotosbox"></div>';
     return h + '</details>';
   }
-  // OCR das fotos do HashData: confere se o que foi digitado aparece na foto
-  function ligaFotos(X) {
-    var b = $('lerFotos'); if (!b || !X.fH) return;
-    b.onclick = async function () {
-      var f = X.fH, H = X.H, pf = files.find(function (x) { return x.type === 'pscf' && x.status === 'ok'; }), P = pf ? parsePSCF(pf.pages, pf.ext === 'pdf') : {};
-      b.disabled = true; var res = $('fotosRes');
-      try {
-        var doc = await pdfjsLib.getDocument({ data: new Uint8Array(await f.file.arrayBuffer()), isEvalSupported: false }).promise, txt = '';
-        for (var i = 0; i < H.fotoPags.length; i++) { res.innerHTML = 'Lendo foto ' + (i + 1) + ' de ' + H.fotoPags.length + '…'; var w = await OCR.page(await doc.getPage(H.fotoPags[i])); txt += ' ' + w.map(function (x) { return x.str; }).join(' '); }
-        var T = norm(txt).replace(/[^A-Z0-9]/g, ''), T0 = T.replace(/O/g, '0');
-        var itens = [['O.C.', H.oc || P.oc], ['Ordem de carga', H.ordem || dig(P.ref)], ['Termógrafo', H.termografo || P.termografo], ['Lacre', dig((H.lacre || P.lacre || '').split('/')[0])]].filter(function (x) { return x[1]; });
-        var html = '<ul>' + itens.map(function (x) { var k = norm(x[1]).replace(/[^A-Z0-9]/g, ''), ok = T.indexOf(k) >= 0 || T0.indexOf(k.replace(/O/g, '0')) >= 0; return '<li class="' + (ok ? 'ok' : 'warn') + '">' + (ok ? '✓ ' : '! ') + esc(x[0]) + ' ' + esc(x[1]) + (ok ? ': aparece na foto' : ': não achei na foto (pode ser a qualidade da imagem: confira)') + '</li>'; }).join('') + '</ul>';
-        f.fotoRes = html; res.innerHTML = html;
-      } catch (e) { res.innerHTML = '<span class="ico err">Não consegui ler as fotos: ' + esc(e && e.message || e) + '</span>'; }
-      b.disabled = false;
-    };
+  /* ---------- fotos do HashData: PaddleOCR (PP-OCRv3) offline, o mesmo leitor da Conferência da Carga ---------- */
+  var FOTO_RE0 = /(foto|evid[êe]ncia|registro).*(lacre|cont[êe]iner|contentor|container)|(lacre|cont[êe]iner).*(foto)|evid[êe]ncias? do fechamento das? portas?|ve[íi]culo lacrado|portas fechadas|foto da ordem de carga|foto do term[óo]grafo/i;
+  var FOTO_NAO = /lava[çc][ãa]o/i; // lacre de lavação não é o lacre SIF
+  var FOTO_MULTI = /fechamento das? portas?|ve[íi]culo lacrado|portas fechadas|ordem de carga/i;
+  var FOTO_VEIC = /(foto|registro).*(placa|condi[çc][õo]es estruturais)/i;
+  var FT = { estado: 'off', erro: '', cache: {}, chave: null, grupos: null, H: null, N: null, lendo: false, carregando: false };
+  var ehFoto = function (re, l) { return re.test(l) && !FOTO_NAO.test(l); };
+  async function fotosHash(f, H) {
+    var FOTO_RE = (!H.container && H.placa) ? new RegExp(FOTO_RE0.source + '|' + FOTO_VEIC.source, 'i') : FOTO_RE0;
+    var qa = H.lista.filter(function (q) { return ehFoto(FOTO_RE, q.label) && q.page; }); if (!qa.length) return [];
+    var pdf = await pdfjsLib.getDocument({ data: new Uint8Array(await f.file.arrayBuffer()), isEvalSupported: false }).promise, porPag = {}, vistas = {};
+    var mul = function (m, t) { return [m[0] * t[0] + m[2] * t[1], m[1] * t[0] + m[3] * t[1], m[0] * t[2] + m[2] * t[3], m[1] * t[2] + m[3] * t[3], m[0] * t[4] + m[2] * t[5] + m[4], m[1] * t[4] + m[3] * t[5] + m[5]]; };
+    async function imgsDaPagina(n) {
+      if (porPag[n]) return porPag[n]; if (n < 1 || n > pdf.numPages) return [];
+      for (var ant = 1; ant < n; ant++) if (!porPag[ant]) await imgsDaPagina(ant);
+      var page = await pdf.getPage(n), ops = await page.getOperatorList(), out = [], ctm = [1, 0, 0, 1, 0, 0], pilha = [];
+      for (var i = 0; i < ops.fnArray.length; i++) {
+        var fn = ops.fnArray[i];
+        if (fn === pdfjsLib.OPS.save) { pilha.push(ctm); continue; } if (fn === pdfjsLib.OPS.restore) { ctm = pilha.pop() || [1, 0, 0, 1, 0, 0]; continue; }
+        if (fn === pdfjsLib.OPS.transform) { ctm = mul(ctm, ops.argsArray[i]); continue; }
+        if (fn !== pdfjsLib.OPS.paintImageXObject && fn !== pdfjsLib.OPS.paintJpegXObject) continue;
+        var yTop = Math.max(ctm[5], ctm[5] + ctm[3], ctm[5] + ctm[1]), id = ops.argsArray[i][0], store = String(id).indexOf('g_') === 0 ? page.commonObjs : page.objs;
+        var img = await Promise.race([new Promise(function (res) { try { if (store.has(id)) res(store.get(id)); else store.get(id, res); } catch (e) { res(null); } }), new Promise(function (res) { setTimeout(function () { res(null); }, 4000); })]);
+        if (!img || Math.max(img.width, img.height) < 300 || img.width * img.height < 60000) continue; // logos do cabeçalho
+        var full = document.createElement('canvas'); full.width = img.width; full.height = img.height; var fx = full.getContext('2d');
+        if (img.bitmap) fx.drawImage(img.bitmap, 0, 0);
+        else if (img.data) { var id2 = fx.createImageData(img.width, img.height), src = img.data;
+          if (src.length === img.width * img.height * 4) id2.data.set(src); else for (var pp = 0, qq = 0; pp < src.length; pp += 3, qq += 4) { id2.data[qq] = src[pp]; id2.data[qq + 1] = src[pp + 1]; id2.data[qq + 2] = src[pp + 2]; id2.data[qq + 3] = 255; }
+          fx.putImageData(id2, 0, 0); }
+        else continue;
+        var px = fx.getImageData(0, 0, img.width, img.height);
+        // foto alta cortada entre duas páginas: o PDF desenha a mesma imagem de novo na página seguinte (conta uma vez só)
+        var sig = img.width + 'x' + img.height + ':'; for (var si = 0; si < 48; si++) { var off = (Math.floor(px.data.length / 4 / 49 * (si + 1)) * 4); sig += px.data[off] + ',' + px.data[off + 1] + ',' + px.data[off + 2] + ';'; }
+        if (vistas[sig] != null && n - vistas[sig] <= 1) continue; vistas[sig] = n;
+        var sc = Math.min(1, 900 / Math.max(img.width, img.height)), cv = document.createElement('canvas');
+        cv.width = Math.round(img.width * sc); cv.height = Math.round(img.height * sc); cv.getContext('2d').drawImage(full, 0, 0, cv.width, cv.height);
+        out.push({ page: n, yTop: yTop, id: f.id + ':' + n + ':' + id, url: cv.toDataURL('image/jpeg', 0.85), px: { data: px.data, width: px.width, height: px.height } });
+      }
+      porPag[n] = out; return out;
+    }
+    // as fotos vêm no PDF na mesma ordem das perguntas com resposta "N imagem(ns)"
+    var comFoto = H.lista.map(function (q) { return { q: q, n: +((/^(\d+)\s+image(?:m|ns)$/i.exec(String(q.value).trim()) || [])[1] || 0) }; }).filter(function (x) { return x.n > 0; });
+    var ultimo = comFoto.reduce(function (a, x, i) { return ehFoto(FOTO_RE, x.q.label) ? i : a; }, -1);
+    var precisa = comFoto.slice(0, ultimo + 1).reduce(function (a, x) { return a + x.n; }, 0), grupos = [];
+    // 1º jeito: pela posição na página (cada foto fica logo abaixo da sua pergunta, às vezes já na página seguinte)
+    try {
+      var posY = {};
+      for (var pn of Array.from(new Set(comFoto.map(function (x) { return x.q.page; })))) { var tc = await (await pdf.getPage(pn)).getTextContent(); tc.items.forEach(function (it) { var m = /^(\d+)\.(\s|$)/.exec(it.str.trim()); if (m) posY[pn + ':' + m[1]] = it.transform[5]; }); }
+      var cand = comFoto.map(function (x) { return { x: x, y: posY[x.q.page + ':' + x.q.n] }; }).filter(function (c) { return c.y != null; });
+      if (cand.length === comFoto.length && precisa > 0) {
+        var ultPag = Math.min(pdf.numPages, Math.max.apply(null, cand.map(function (c) { return c.x.q.page; })) + 2), imgs = [];
+        for (var pq = 1; pq <= ultPag; pq++) imgs = imgs.concat(await imgsDaPagina(pq));
+        var dono = new Map(cand.map(function (c) { return [c, []]; }));
+        imgs.forEach(function (im) { var own = null; cand.forEach(function (c) { if (c.x.q.page < im.page || (c.x.q.page === im.page && c.y > im.yTop - 4)) own = c; }); if (own && dono.get(own).length < own.x.n) dono.get(own).push(im); });
+        var ok = cand.filter(function (c) { return ehFoto(FOTO_RE, c.x.q.label); });
+        if (ok.length && ok.every(function (c) { return dono.get(c).length === c.x.n; })) { ok.forEach(function (c) { grupos.push({ label: c.x.q.n + '. ' + c.x.q.label, imgs: dono.get(c) }); }); return grupos; }
+      }
+    } catch (e) { console.warn('posição das fotos', e); }
+    // 2º jeito: pela ordem das perguntas com "N imagem(ns)"
+    var todas = [], pg = 1; while (todas.length < precisa && pg <= pdf.numPages) { todas = todas.concat(await imgsDaPagina(pg)); pg++; }
+    if (todas.length >= precisa && precisa > 0) { var k = 0; comFoto.slice(0, ultimo + 1).forEach(function (x) { var ims = todas.slice(k, k + x.n); k += x.n; if (ehFoto(FOTO_RE, x.q.label)) grupos.push({ label: x.q.n + '. ' + x.q.label, imgs: ims }); }); }
+    else for (var q of qa) grupos.push({ label: q.n + '. ' + q.label, imgs: (await imgsDaPagina(q.page)).concat(await imgsDaPagina(q.page + 1)) });
+    return grupos;
   }
-
+  function valoresFoto() { var H = FT.H, N = FT.N, v = []; if (!H) return v;
+    if (H.lacre) v.push(['Lacre SIF', H.lacre]); if (H.lacreSeara) v.push(['Lacre Seara', H.lacreSeara]); if (H.lacreIntertek) v.push(['Lacre armador', H.lacreIntertek]);
+    if (H.container) v.push(['Contêiner', H.container]); else if (H.placa) v.push(['Placa da carreta', H.placa + ' · sem contêiner']);
+    if (H.termografo) v.push(['Termógrafo', H.termografo]); if (H.oc) v.push(['O.C.', H.oc]); if (H.ordem) v.push(['Ordem de carga', H.ordem]);
+    if (N && N.lacre) v.push(['Lacre na DCPOA emitida', N.lacre]); if (N && N.contentor && /\d/.test(N.contentor)) v.push(['Contêiner na DCPOA emitida', N.contentor]); return v; }
+  function alvosDe(label) { var H = FT.H; if (/ordem de carga/i.test(label)) return [['O.C.', H.oc], ['ordem de carga', H.ordem]].filter(function (x) { return x[1]; });
+    return [['lacre SIF', H.lacre], ['lacre Seara', H.lacreSeara], ['lacre armador', H.lacreIntertek], ['contêiner', H.container], ['placa', H.placa]].filter(function (x) { return x[1]; }); }
+  function valorDe(label) { var H = FT.H; if (/term[óo]grafo/i.test(label)) return H.termografo; if (/SEARA/i.test(label)) return H.lacreSeara; if (/intertek|armador/i.test(label)) return H.lacreIntertek;
+    if (/lacre/i.test(label)) return H.lacre; if (/cont[êe]iner|contentor|container/i.test(label)) return H.container; if (/placa|ve[íi]culo|estrutur/i.test(label)) return H.placa; return null; }
+  var multi = function (l) { return FOTO_MULTI.test(l) && !/foto do lacre/i.test(l); };
+  function packBytes() { var b = atob($('ocrpack').textContent.trim()), u = new Uint8Array(b.length); for (var i = 0; i < b.length; i++) u[i] = b.charCodeAt(i); return u; }
+  async function ocrLiga() {
+    if (FT.estado !== 'off') return; FT.estado = 'carregando'; desenhaFotos();
+    try {
+      await new Promise(function (r) { setTimeout(r, 30); });
+      var u8 = packBytes(); if (new TextDecoder().decode(u8.subarray(0, 8)) !== 'CCSOCR01') throw new Error('pacote do leitor inválido');
+      var hl = new DataView(u8.buffer, 8, 4).getUint32(0, true), head = JSON.parse(new TextDecoder().decode(u8.subarray(12, 12 + hl))), base = 12 + hl, P = {};
+      head.files.forEach(function (e) { P[e.name] = u8.subarray(base + e.offset, base + e.offset + e.length); });
+      var wasmURL = URL.createObjectURL(new Blob([P['ort-wasm-simd.wasm']], { type: 'application/wasm' }));
+      ort.env.wasm.numThreads = 1; ort.env.wasm.proxy = false; ort.env.wasm.wasmPaths = { 'ort-wasm-simd.wasm': wasmURL, 'ort-wasm.wasm': wasmURL };
+      await FotoOCR.init(ort, { det: P['det.onnx'], cls: P['cls.onnx'], rec: P['rec.onnx'], keys: new TextDecoder().decode(P['keys.txt']) });
+      FT.estado = 'pronto';
+    } catch (e) { console.error(e); FT.estado = 'erro'; FT.erro = e && e.message || String(e); }
+    desenhaFotos(); lerFotos();
+  }
+  var RANK = { ok: 5, numero: 4, iso: 3, quase: 2, diferente: 1, nada: 0 };
+  async function leGrupo(g, alvo, multiplo) {
+    var lidos = [], pausa = function () { return new Promise(function (r) { setTimeout(r, 10); }); };
+    var le = async function (im, k) { var key = im.id + (k ? ':r' + k : ''); if (!FT.cache[key]) { try { FT.cache[key] = await FotoOCR.read(k ? FotoOCR.rotate(im.px, k) : im.px); } catch (e) { FT.cache[key] = []; } } return FT.cache[key]; };
+    var bateu = function () { return multiplo ? alvo.every(function (a) { return FotoOCR.confere(lidos, a[1]).status === 'ok'; }) : FotoOCR.confere(lidos, alvo).status === 'ok'; };
+    for (var im of g.imgs) { lidos = lidos.concat(await le(im, 0)); await pausa(); if (bateu()) break; }
+    // se não bateu, tenta a foto girada (lacre fotografado de lado)
+    for (var k of [1, 3]) { if (bateu()) break; for (var im2 of g.imgs) { lidos = lidos.concat(await le(im2, k)); await pausa(); } }
+    return lidos;
+  }
+  async function lerFotos() {
+    if (FT.estado !== 'pronto' || FT.lendo || !FT.grupos) return; FT.lendo = true;
+    try {
+      for (var g of FT.grupos) {
+        if (g.ocr || !g.imgs.length) continue;
+        if (multi(g.label)) { var alvos = alvosDe(g.label); if (!alvos.length) continue; g.ocr = { status: 'lendo' }; desenhaFotos();
+          var l1 = await leGrupo(g, alvos, true); g.ocr = { status: 'multi', itens: alvos.map(function (a) { return { nome: a[0], v: a[1], c: FotoOCR.confere(l1, a[1]) }; }) }; desenhaFotos(); continue; }
+        var valor = valorDe(g.label); if (!valor) continue;
+        g.ocr = { status: 'lendo' }; desenhaFotos();
+        var l2 = await leGrupo(g, valor, false), c = FotoOCR.confere(l2, valor);
+        g.ocr = Object.assign(c, { textos: l2.map(function (x) { return x.text; }).filter(function (x) { return /\d{3,}|^[A-Z]{4}$/i.test(x.replace(/\s/g, '')); }) }); desenhaFotos();
+      }
+    } finally { FT.lendo = false; }
+  }
+  function seloOCR(g, valor) {
+    var o = g.ocr; if (!o || (!valor && o.status !== 'multi' && o.status !== 'lendo')) return '';
+    if (o.status === 'multi') return o.itens.map(function (it) { var c = it.c; return c.status === 'ok' || c.status === 'numero' ? '<span class="fo ok">✓ ' + esc(it.nome) + ' ' + esc(it.v) + '</span>' : c.status === 'quase' ? '<span class="fo warn">⚠ ' + esc(it.nome) + ': li ' + esc(c.lido) + '</span>' : c.status === 'iso' ? '<span class="fo bad">⚠ ' + esc(it.nome) + ': letras não fecham com o dígito</span>' : '<span class="fo na">' + esc(it.nome) + ' não aparece</span>'; }).join(' ');
+    if (o.status === 'lendo') return '<span class="fo lendo">lendo a foto…</span>';
+    if (o.status === 'ok') return '<span class="fo ok">✓ a foto confere</span>';
+    if (o.status === 'numero') return '<span class="fo ok">✓ o número confere (não consegui ler as letras ' + esc(o.letras) + ')</span>';
+    if (o.status === 'iso') return '<span class="fo bad">⚠ o número bate, mas as letras digitadas (' + esc(o.letras) + ') não fecham com o dígito verificador: confira as letras na foto</span>';
+    if (o.status === 'quase') return '<span class="fo warn">⚠ parecido: li ' + esc(o.lido) + ', confira</span>';
+    if (o.status === 'diferente') return '<span class="fo bad">⚠ não achei o número digitado na foto' + (o.textos.length ? ' · li: ' + esc(o.textos.slice(0, 5).join(' · ')) : '') + '</span>';
+    return '<span class="fo warn">não consegui ler a foto, confira no olho</span>';
+  }
+  function desenhaFotos() {
+    var box = $('fotosBox'); if (!box || !FT.H) return;
+    var vals = valoresFoto(), gs = (FT.grupos || []).filter(function (g) { return g.imgs.length; });
+    var nota = { pronto: 'Leitura automática ligada: a ferramenta lê o número na foto e compara com o digitado. Mesmo assim, dê uma olhada nas fotos.', carregando: 'Ligando a leitura automática das fotos…', erro: 'Não consegui ligar a leitura automática: ' + esc(FT.erro) + '. Confira as fotos no olho.' }[FT.estado] || 'Confira no olho se o número da foto é o mesmo que foi digitado. Clique na foto para ampliar.';
+    box.innerHTML = '<h3 class="ft">Fotos do HashData: lacre, contêiner, ordem de carga e termógrafo</h3><div class="fvals">' + vals.map(function (x) { return '<div><span>' + esc(x[0]) + '</span><b>' + esc(x[1]) + '</b></div>'; }).join('') + '</div>' +
+      (FT.carregando ? '<div class="fnota">Separando as fotos do HashData…</div>' : (!gs.length ? '<div class="fnota">Não achei fotos de lacre, contêiner, ordem de carga ou termógrafo neste HashData.</div>' : '')) +
+      gs.map(function (g) { var valor = multi(g.label) ? null : valorDe(g.label); return '<div class="fg"><div class="fl">' + esc(g.label) + (valor ? ' · digitado: <b class="fv">' + esc(valor) + '</b>' : '') + ' ' + seloOCR(g, valor) + '</div><div class="fimgs">' + g.imgs.map(function (im) { return '<a href="#" data-foto="' + im.url + '"><img src="' + im.url + '" alt=""></a>'; }).join('') + '</div></div>'; }).join('') +
+      (gs.length ? '<div class="fnota">' + nota + '</div>' : '');
+    box.querySelectorAll('[data-foto]').forEach(function (a) { a.onclick = function (e) { e.preventDefault(); var ov = document.createElement('div'); ov.className = 'fover'; ov.innerHTML = '<img src="' + a.getAttribute('data-foto') + '">'; ov.onclick = function () { ov.remove(); }; document.body.appendChild(ov); }; });
+  }
+  async function ligaFotos(X) {
+    if (!X.H || !X.fH) return;
+    FT.H = X.H; FT.N = X.N;
+    if (FT.chave !== X.fH.id) { FT.chave = X.fH.id; FT.grupos = null; FT.carregando = true; desenhaFotos();
+      try { FT.grupos = await fotosHash(X.fH, X.H); } catch (e) { console.warn(e); FT.grupos = []; }
+      FT.carregando = false; }
+    desenhaFotos(); if (FT.grupos && FT.grupos.length) { if (FT.estado === 'off') ocrLiga(); else lerFotos(); }
+  }
   /* ---------- impressão, página e compilado ---------- */
   var CARGA = {};
   function cinco(a) { var o = []; for (var i = 0; i < a.length; i += 5) o.push(esc(a.slice(i, i + 5).join(' '))); return o.join('<br>'); }
@@ -1253,8 +1383,9 @@
   async function lembrada() { try { var db = await DB(); return await new Promise(function (ok) { var r = db.transaction('kv').objectStore('kv').get('pasta'); r.onsuccess = function () { ok(r.result || null); }; r.onerror = function () { ok(null); }; }); } catch (e) { return null; } }
   // A janela de escolher pasta só abre logo depois do clique: nada de esperar antes de chamá-la.
   var PASTA_H = null, ALT = ' <button class="btn link" data-alt="1">Usar o modo alternativo</button>';
-  function podePicker() { try { return !!window.showDirectoryPicker && window.self === window.top; } catch (e) { return false; } }
-  function modoAlt() { alertaPasta('', 'Escolha a pasta na janela do navegador e confirme em "Carregar".', 'Em pasta grande ou de rede o navegador pode levar alguns segundos para listar os arquivos antes de começar a busca.', true); $('pastaIn').click(); }
+  var FALHOU_NOVO = false, MODO_ALT = false; try { MODO_ALT = localStorage.getItem('hub-pasta-modo') === 'alt'; } catch (e) {}
+  function podePicker() { if (MODO_ALT) return false; try { return !!window.showDirectoryPicker && window.self === window.top; } catch (e) { return false; } }
+  function modoAlt() { FT_ALT = true; alertaPasta('', 'Escolha a pasta na janela do navegador e confirme em "Carregar".', 'Em pasta grande ou de rede o navegador pode levar alguns segundos para listar os arquivos antes de começar a busca.', true); $('pastaIn').click(); }
   function buscaPasta(outra) {
     var F = faltam(); if (!F) return;
     if (!podePicker()) { modoAlt(); return; }
@@ -1262,7 +1393,7 @@
     if (!outra && PASTA_H) { alertaPasta('', 'Abrindo a pasta ' + PASTA_H.name + '…', 'Se o navegador perguntar, permita ver os arquivos.', true); p = PASTA_H.requestPermission({ mode: 'read' }).then(function (r) { if (r !== 'granted') throw Object.assign(new Error('sem permissão'), { name: 'NotAllowedError' }); return PASTA_H; }); }
     else { alertaPasta('', 'Escolha a pasta na janela que abriu.', 'Ex.: M:\\SSF-SIF3403\\Entrada. A busca começa assim que você clicar em Selecionar pasta.', true); p = window.showDirectoryPicker({ id: 'hub-respaldos', mode: 'read' }); }
     p.then(function (dir) { PASTA_H = dir; guarda(dir); mostraUltima(); return procuraEm(dir, F); }).catch(function (e) {
-      if (e && e.name === 'AbortError') { alertaPasta('', 'Busca cancelada: nenhuma pasta foi escolhida.'); return; }
+      if (e && e.name === 'AbortError') { alertaPasta('warn', 'A pasta não chegou à ferramenta.', 'Se você escolheu a pasta e mesmo assim apareceu isto, o Edge não liberou o acesso (configuração da empresa). Use o modo alternativo ou arraste a pasta do Explorador de Arquivos para cá.', false, ALT); FALHOU_NOVO = true; return; }
       alertaPasta('err', 'O navegador não deixou abrir a pasta' + (e && e.name === 'NotAllowedError' ? ' (permissão negada).' : '.'), 'Clique em "Escolher outra pasta" ou use o modo alternativo. ' + String(e && e.message || e), false, ALT);
     });
   }
@@ -1275,12 +1406,35 @@
     await escolhe(out, F);
   }
   function mostraUltima() { var b = $('pasta'), o = $('pastaOutra'); if (PASTA_H) { b.lastChild.textContent = 'Buscar respaldos na pasta ' + PASTA_H.name; o.classList.remove('hide'); } }
+  // pasta arrastada do Explorador de Arquivos: lê as entradas sem pedir permissão de pasta
+  function lerEntradas(dirEnt) { return new Promise(function (ok) { var r = dirEnt.createReader(), tudo = []; (function mais() { r.readEntries(function (lst) { if (!lst.length) ok(tudo); else { tudo = tudo.concat(Array.from(lst)); mais(); } }, function () { ok(tudo); }); })(); }); }
+  async function varreEntrada(dirEnt, F, out, prof, cont) {
+    var ents = await lerEntradas(dirEnt), subs = [];
+    for (var ent of ents) { if (cont.fim) return; cont.n++;
+      if (cont.n % 2000 === 0) alertaPasta('', 'Procurando na pasta ' + cont.raiz + '…', fmtN(cont.n) + ' arquivos olhados até agora.', true);
+      if (ent.isFile) { if (ACEITA.test(ent.name)) { var ks = casaNome(ent.name, F.keys, F.req); if (ks.length) { out.push({ f: await new Promise(function (ok, no) { ent.file(ok, no); }), ks: ks }); ks.forEach(function (x) { if (x.forte) cont.fortes.add(x.k); }); if (cont.fortes.size >= F.keys.length) { cont.fim = true; return; } } } }
+      else if (ent.isDirectory && prof < 4 && !/^[.$~]/.test(ent.name)) subs.push(ent); }
+    for (var i = 0; i < subs.length && !cont.fim; i++) await varreEntrada(subs[i], F, out, prof + 1, cont);
+  }
+  async function soltouPasta(dirs) {
+    var m2 = $('pastaMsg2'); if (m2) m2.classList.remove('hide');
+    var F = faltam(); if (!F) return;
+    alertaPasta('', 'Procurando ' + F.keys.length + ' respaldo(s) na pasta ' + dirs.map(function (d) { return d.name; }).join(', ') + '…', 'Em pasta de rede pode levar alguns segundos.', true);
+    REQ = F.req; var out = [], cont = { n: 0, fortes: new Set(), raiz: dirs[0].name };
+    try { for (var d of dirs) await varreEntrada(d, F, out, 0, cont); } catch (e) { alertaPasta('err', 'Não consegui ler a pasta arrastada.', String(e && e.message || e)); return; }
+    alertaPasta('', 'Conferindo os arquivos achados…', '', true); await escolhe(out, F);
+  }
+  function pastasDoArraste(e) { var it = e.dataTransfer && e.dataTransfer.items, d = []; if (!it) return d; for (var i = 0; i < it.length; i++) { var en = it[i].webkitGetAsEntry && it[i].webkitGetAsEntry(); if (en && en.isDirectory) d.push(en); } return d; }
+  document.addEventListener('dragover', function (e) { if (e.dataTransfer && Array.prototype.some.call(e.dataTransfer.types || [], function (t) { return t === 'Files'; })) e.preventDefault(); });
+  document.addEventListener('drop', function (e) { var d = pastasDoArraste(e); if (!d.length) { if (!e.target.closest || !e.target.closest('#drop')) e.preventDefault(); return; } e.preventDefault(); e.stopPropagation(); $('drop').classList.remove('over'); soltouPasta(d); }, true);
   $('pasta').onclick = function () { buscaPasta(false); };
   $('pastaOutra').onclick = function () { buscaPasta(true); };
+  var FT_ALT = false;
   $('pastaIn').onchange = function () { var F = faltam(); if (!F) { this.value = ''; return; } var out = [];
+    if (FT_ALT && FALHOU_NOVO) { MODO_ALT = true; try { localStorage.setItem('hub-pasta-modo', 'alt'); } catch (e) {} } // o jeito novo falhou e este funcionou: usa direto nas próximas
     alertaPasta('', 'Procurando nos ' + fmtN(this.files.length) + ' arquivos da pasta…', '', true);
     Array.prototype.forEach.call(this.files, function (f) { if (ACEITA.test(f.name)) { var ks = casaNome(f.name, F.keys, F.req); if (ks.length) out.push({ f: f, ks: ks }); } }); this.value = ''; escolhe(out, F); };
-  $('pastaIn').addEventListener('cancel', function () { alertaPasta('', 'Busca cancelada: nenhuma pasta foi escolhida.'); });
+  $('pastaIn').addEventListener('cancel', function () { alertaPasta('warn', 'Nenhuma pasta chegou à ferramenta.', 'Se você escolheu a pasta, tente arrastá-la do Explorador de Arquivos para cá.'); });
   Promise.race([lembrada(), new Promise(function (ok) { setTimeout(function () { ok(null); }, 2500); })]).then(function (h) { if (h && h.kind === 'directory') { PASTA_H = h; mostraUltima(); } });
   document.addEventListener('click', function (e) { var b = e.target.closest && e.target.closest('[data-alt]'); if (b) modoAlt(); });
 

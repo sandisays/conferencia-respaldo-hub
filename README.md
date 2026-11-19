@@ -24,13 +24,13 @@ Ferramenta em um único arquivo HTML, que funciona sem internet, para conferir o
 - PSCF × Anexo IV: destino, relatório de embarque, lotes e certificados declarados.
 - Documentos da exportação (PSCF × Anexo IV × HashData × DCPOA emitida × SIGSIF): O.C., relatório de embarque, destino, container, lacre, datas e horários, temperaturas, termógrafo, volumes, peso e números cruzados.
 - DCPOA emitida: rótulo, marca, volumes, peso, datas, código de rastreabilidade, lotes, destino, respaldos citados (Anexo IV, NF, croqui) e DCPOA de trânsito nas observações.
-- Fotos do HashData (ordem de carga, termógrafo, lacre) lidas com OCR, sob demanda.
+- Fotos do HashData (ordem de carga, termógrafo, fechamento das portas, lacre) lidas automaticamente com PaddleOCR (PP-OCRv3) offline, o mesmo leitor da Conferência da Carga.
 
 ## Outras funções
 
 - Baixar cada arquivo da lista; baixar o compilado (.zip) com a página e todos os arquivos.
 - Imprimir ou baixar a página com marca d'água USO INTERNO SEARA, data e nome de quem conferiu.
-- Buscar os respaldos da carga numa pasta (inclusive de rede), pelo número no nome do arquivo.
+- Buscar os respaldos da carga numa pasta (inclusive de rede), pelo número no nome do arquivo: pela janela de pasta, pelo modo alternativo ou arrastando a pasta para a página.
 
 ## Gerar de novo
 
@@ -42,4 +42,4 @@ python3 tools/gerar_classificacao.py <planilha Documento Sanitário x Habilitaç
 
 A senha do manual nunca vai para arquivo nem commit.
 
-Bibliotecas embutidas (em `vendor/`): pdf.js (Apache-2.0), JSZip (MIT), Tesseract.js e tesseract.js-core (Apache-2.0) e dados de português do Tesseract (MIT).
+Bibliotecas embutidas (em `vendor/`): pdf.js (Apache-2.0), JSZip (MIT), Tesseract.js e tesseract.js-core (Apache-2.0), dados de português do Tesseract (MIT), ONNX Runtime Web 1.17.3 (MIT) e modelos PaddleOCR PP-OCRv3 (Apache-2.0).
