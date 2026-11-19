@@ -1393,8 +1393,8 @@
     if (!outra && PASTA_H) { alertaPasta('', 'Abrindo a pasta ' + PASTA_H.name + '…', 'Se o navegador perguntar, permita ver os arquivos.', true); p = PASTA_H.requestPermission({ mode: 'read' }).then(function (r) { if (r !== 'granted') throw Object.assign(new Error('sem permissão'), { name: 'NotAllowedError' }); return PASTA_H; }); }
     else { alertaPasta('', 'Escolha a pasta na janela que abriu.', 'Ex.: M:\\SSF-SIF3403\\Entrada. A busca começa assim que você clicar em Selecionar pasta.', true); p = window.showDirectoryPicker({ id: 'hub-respaldos', mode: 'read' }); }
     p.then(function (dir) { PASTA_H = dir; guarda(dir); mostraUltima(); return procuraEm(dir, F); }).catch(function (e) {
-      if (e && e.name === 'AbortError') { alertaPasta('warn', 'A pasta não chegou à ferramenta.', 'Se você escolheu a pasta e mesmo assim apareceu isto, o Edge não liberou o acesso (configuração da empresa). Use o modo alternativo ou arraste a pasta do Explorador de Arquivos para cá.', false, ALT); FALHOU_NOVO = true; return; }
-      alertaPasta('err', 'O navegador não deixou abrir a pasta' + (e && e.name === 'NotAllowedError' ? ' (permissão negada).' : '.'), 'Clique em "Escolher outra pasta" ou use o modo alternativo. ' + String(e && e.message || e), false, ALT);
+      if (e && e.name === 'AbortError') { alertaPasta('warn', 'A pasta não chegou à ferramenta.', 'Use o modo alternativo ou arraste a pasta do Explorador de Arquivos para esta página.', false, ALT); FALHOU_NOVO = true; return; }
+      alertaPasta('warn', 'Não consegui abrir a pasta.', 'Use o modo alternativo ou arraste a pasta do Explorador de Arquivos para esta página.', false, ALT); console.warn(e);
     });
   }
   async function procuraEm(dir, F) {
