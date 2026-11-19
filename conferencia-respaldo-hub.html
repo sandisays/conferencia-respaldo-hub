@@ -221,7 +221,7 @@
       <li>Para imprimir, baixar a página ou o compilado, preencha o seu nome: ele vai na marca d'água junto com a data.</li>
     </ul>
   </div>
-  <footer>Conferência de respaldo do HUB · v2.2</footer>
+  <footer>Conferência de respaldo do HUB · v2.3</footer>
 </main>
 
 <script>/**
@@ -1780,20 +1780,25 @@ else if (typeof exports === 'object')
     }
     var ach = [], vis = new Set(); Object.keys(por).forEach(function (k) { if (!vis.has(por[k].f)) { vis.add(por[k].f); ach.push(por[k].f); } });
     var nf = F.keys.filter(function (k) { return !por[k]; }).map(function (k) { return F.req[k]; });
-    if (!ach.length) { alertaPasta('err', 'Não achei nenhum dos ' + F.keys.length + ' respaldos nesta pasta.', 'Procurei pelo número no nome do arquivo (ex.: N0-00598842-3837-26 ou 003364-3837-26): ' + F.keys.map(function (k) { return F.req[k]; }).join(', ')); return; }
-    alertaPasta(nf.length ? '' : 'ok', 'Achei ' + Object.keys(por).length + ' de ' + F.keys.length + ' respaldos e coloquei na lista.', nf.length ? 'Não achei: ' + nf.join(', ') : '');
+    if (!ach.length) { alertaPasta('err', 'Não achei nenhum dos ' + F.keys.length + ' respaldos nesta pasta.', 'Procurei pelo número no nome do arquivo (ex.: N0-00598842-3837-26 ou 003364-3837-26): ' + F.keys.map(function (k) { return F.req[k]; }).join(', ') + '. ' + W0); W0 = ''; return; }
+    alertaPasta(nf.length ? '' : 'ok', 'Achei ' + Object.keys(por).length + ' de ' + F.keys.length + ' respaldos e coloquei na lista.', (nf.length ? 'Não achei: ' + nf.join(', ') + '. ' : '') + W0); W0 = '';
     var jaConferiu = !$('out').classList.contains('hide');
     addFiles(ach);
     if (jaConferiu) queue.then(function () { $('run').click(); }); // confere de novo com os respaldos novos
   }
-  var REQ = {};
+  var REQ = {}, W0 = '';
   var ACEITA = /\.(pdf|xlsx|xlsm)$/i;
+  // olha primeiro os arquivos da pasta, depois as subpastas; para quando todos os números foram achados pelo nome completo
   async function varre(dir, keys, out, prof, cont) {
+    var subs = [];
     for await (var ent of dir.values()) {
-      if (cont.n++ > 40000) return;
-      if (ent.kind === 'file') { if (ACEITA.test(ent.name)) { var ks = casaNome(ent.name, keys, REQ); if (ks.length) out.push({ f: await ent.getFile(), ks: ks }); } }
-      else if (prof < 4 && !/^[.$~]/.test(ent.name)) await varre(ent, keys, out, prof + 1, cont);
+      if (cont.fim) return;
+      if (++cont.n > 300000) { cont.cheio = cont.fim = true; return; }
+      if (cont.n % 2000 === 0) alertaPasta('', 'Procurando ' + keys.length + ' respaldo(s) na pasta ' + cont.raiz + '…', fmtN(cont.n) + ' arquivos olhados até agora.');
+      if (ent.kind === 'file') { if (ACEITA.test(ent.name)) { var ks = casaNome(ent.name, keys, REQ); if (ks.length) { out.push({ f: await ent.getFile(), ks: ks }); ks.forEach(function (x) { if (x.forte) cont.fortes.add(x.k); }); if (cont.fortes.size >= keys.length) { cont.fim = true; return; } } } }
+      else if (prof < 4 && !/^[.$~]/.test(ent.name)) subs.push(ent);
     }
+    for (var i = 0; i < subs.length && !cont.fim; i++) await varre(subs[i], keys, out, prof + 1, cont);
   }
   var DB = function () { return new Promise(function (ok, no) { var r = indexedDB.open('hub-respaldo', 1); r.onupgradeneeded = function () { r.result.createObjectStore('kv'); }; r.onsuccess = function () { ok(r.result); }; r.onerror = function () { no(r.error); }; }); };
   async function guarda(h) { try { var db = await DB(); db.transaction('kv', 'readwrite').objectStore('kv').put(h, 'pasta'); } catch (e) {} }
@@ -1806,7 +1811,8 @@ else if (typeof exports === 'object')
     if (!dir) { try { dir = await window.showDirectoryPicker({ id: 'hub-respaldos', mode: 'read' }); } catch (e) { if (e && e.name === 'AbortError') return; $('pastaIn').click(); return; } guarda(dir); }
     $('pastaOutra').classList.remove('hide');
     alertaPasta('', 'Procurando ' + F.keys.length + ' respaldo(s) na pasta ' + dir.name + '…', 'Em pasta de rede pode levar alguns segundos.');
-    REQ = F.req; var out = []; try { await varre(dir, F.keys, out, 0, { n: 0 }); } catch (e) { alertaPasta('err', 'Não consegui ler a pasta ' + dir.name + '.', String(e && e.message || e)); return; }
+    REQ = F.req; var out = [], cont = { n: 0, fortes: new Set(), raiz: dir.name }; try { await varre(dir, F.keys, out, 0, cont); } catch (e) { alertaPasta('err', 'Não consegui ler a pasta ' + dir.name + '.', 'Se for pasta de rede, confira se a unidade está conectada no Windows. ' + String(e && e.message || e)); return; }
+    if (cont.cheio) W0 = 'A pasta tem mais de 300 mil arquivos: escolha uma subpasta mais perto dos respaldos.';
     escolhe(out, F);
   }
   $('pasta').onclick = function () { buscaPasta(false); };
