@@ -1262,7 +1262,7 @@
     return '<!DOCTYPE html><html lang="pt-BR" data-theme="light"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
       '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'; font-src data:; img-src data:">' +
       '<title>' + esc(nomeBase()) + '</title><style>' + css + '</style></head><body class="snap"><main>' + head.outerHTML + out.innerHTML +
-      '<footer>' + esc($('versao').textContent) + ' · Desenvolvido por Sandi Fernanda dos Santos · Tudo conferido no próprio computador, sem envio de dados</footer></main></body></html>';
+      '<footer>' + esc($('versao').textContent) + ' · Desenvolvido por Sandi · Tudo conferido no próprio computador, sem envio de dados</footer></main></body></html>';
   }
   function ligaFerramentas() {
     var abre = function (v) { Array.prototype.forEach.call(document.querySelectorAll('#out details.blk'), function (d) { d.open = v; }); };
