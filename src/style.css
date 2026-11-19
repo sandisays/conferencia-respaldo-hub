@@ -139,3 +139,11 @@
     h2, h3, summary { break-after:avoid; }
     .issues li { break-inside:avoid; padding:6px 10px; }
   }
+  table.grade td.nc { color:var(--mute); font-style:italic; }
+  table.grade td.x { color:var(--err); font-weight:700; }
+  .fotos { display:flex; flex-wrap:wrap; align-items:center; gap:8px 14px; margin-top:12px; padding-top:10px; border-top:1px solid var(--line); }
+  .fotos > div:first-child { margin-right:auto; }
+  .fres { width:100%; font-size:14px; } .fres ul { list-style:none; margin:4px 0 0; padding:0; display:grid; gap:4px; }
+  .fres li.ok { color:var(--ok); } .fres li.warn { color:var(--pr); }
+  .flist li.img::before { background:#6b4fbb; }
+  @media print { .fotos button { display:none; } }

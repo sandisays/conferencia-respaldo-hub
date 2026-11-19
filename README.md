@@ -7,7 +7,9 @@ Ferramenta em um único arquivo HTML, que funciona sem internet, para conferir o
 - Relatório PSCF 7446, modelo 4 (Excel ou PDF);
 - Anexo IV;
 - documentos de respaldo (CSN, CSI, DCPOA, SIGSIF), mesmo escaneados (OCR);
-- opcional: ficha do SIF do armazém (Produtos Habilitados para Exportação).
+- opcional: ficha do SIF do armazém (Produtos Habilitados para Exportação);
+- opcional: HashData (guia de carregamento), nova DCPOA emitida, SIGSIF da exportação, nota fiscal e croqui;
+- também aceita foto (JPG/PNG), lida com OCR.
 
 ## O que é conferido
 
@@ -20,6 +22,15 @@ Ferramenta em um único arquivo HTML, que funciona sem internet, para conferir o
 - Habilitação de estocagem do entreposto, pela ficha do SIF.
 - Volumes e peso do PSCF dentro do que o documento cobre.
 - PSCF × Anexo IV: destino, relatório de embarque, lotes e certificados declarados.
+- Documentos da exportação (PSCF × Anexo IV × HashData × nova DCPOA × SIGSIF): O.C., relatório de embarque, destino, container, lacre, datas e horários, temperaturas, termógrafo, volumes, peso e números cruzados.
+- Nova DCPOA: rótulo, marca, volumes, peso, datas, código de rastreabilidade, lotes, destino, respaldos citados (Anexo IV, NF, croqui) e DCPOA de trânsito nas observações.
+- Fotos do HashData (ordem de carga, termógrafo, lacre) lidas com OCR, sob demanda.
+
+## Outras funções
+
+- Baixar cada arquivo da lista; baixar o compilado (.zip) com a página e todos os arquivos.
+- Imprimir ou baixar a página com marca d'água USO INTERNO SEARA, data e nome de quem conferiu.
+- Buscar os respaldos da carga numa pasta (inclusive de rede), pelo número no nome do arquivo.
 
 ## Gerar de novo
 

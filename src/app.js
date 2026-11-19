@@ -64,6 +64,10 @@
         for (var yy = 0; yy < H; yy++) { run = 0; for (var xx = 0; xx <= W; xx++) { if (xx < W && dk((yy * W + xx) * 4)) run++; else { if (run >= minH) for (k = xx - run; k < xx; k++) { i = (yy * W + k) * 4; d[i] = d[i + 1] = d[i + 2] = 255; } run = 0; } } }
         for (var xx2 = 0; xx2 < W; xx2++) { run = 0; for (var yy2 = 0; yy2 <= H; yy2++) { if (yy2 < H && dk((yy2 * W + xx2) * 4)) run++; else { if (run >= minV) for (k = yy2 - run; k < yy2; k++) { i = (k * W + xx2) * 4; d[i] = d[i + 1] = d[i + 2] = 255; } run = 0; } } }
         x.putImageData(id, 0, 0); } catch (e) {}
+      return rec(c, sc);
+    }
+    async function rec(c, sc) {
+      var w = await get();
       var r = await w.recognize(c, {}, { blocks: true, text: false });
       c.width = c.height = 0;
       var out = [];
@@ -75,7 +79,7 @@
       }); }); });
       return out;
     }
-    return { page: page };
+    return { page: page, canvas: rec };
   })();
 
   /* ---------- leitura dos arquivos ---------- */
@@ -112,6 +116,14 @@
     return pages;
   }
 
+  async function readImg(f, onProg) {
+    onProg(0.05, 'Lendo a foto com OCR');
+    var bmp = await createImageBitmap(f.file), sc = Math.min(1, 3600 / Math.max(bmp.width, bmp.height));
+    var c = document.createElement('canvas'); c.width = Math.round(bmp.width * sc); c.height = Math.round(bmp.height * sc);
+    var x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.drawImage(bmp, 0, 0, c.width, c.height);
+    var w = c.width, h = c.height, words = await OCR.canvas(c, 1); onProg(1, 'Foto lida');
+    return [{ n: 1, w: w, h: h, ocr: true, img: true, lines: toLines(words), words: words }];
+  }
   async function readXlsx(f) {
     var zip = await JSZip.loadAsync(await f.file.arrayBuffer());
     var txt = async function (p) { var e = zip.file(p); return e ? await e.async('string') : ''; };
@@ -141,8 +153,13 @@
     return [{ n: 1, ocr: false, lines: lines, words: [] }];
   }
 
-  function classify(text) {
-    var U = norm(text);
+  function classify(text, nome) {
+    var U = norm(text), N = norm(nome || '');
+    if (/GUIA DE CARREGAMENTO DE MERCADORIAS|HASHDATA/.test(U) || (/QUALI9/.test(U) && /CONTEINER|CONTAINER/.test(U))) return 'hashdata';
+    if (/DECLARACAO DE PRODUTOS DE ORIGEM ANIMAL/.test(U)) return /FINALIDADE DA DCPOA\s*:\s*SOLICITACAO|SOLICITACAO DE CERTIFICADO SANITARIO/.test(U) ? 'dcpoanova' : 'dcpoa';
+    if (/DETALHES DO DOCUMENTO DE TRANSITO/.test(U)) return 'sigsif';
+    if (/DANFE|DOCUMENTO AUXILIAR DA NOTA FISCAL/.test(U)) return 'nf';
+    if (/CROQUI/.test(N) || (/ETIQUETA PRIMARIA|EMBALAGEM PRIMARIA/.test(U) && /ETIQUETA SECUNDARIA/.test(U))) return 'croqui';
     if (/ESTABELECIMENTO NACIONAL/.test(U) && /PRODUTOS HABILITADOS/.test(U)) return 'ficha';
     if (/PSCF\s*7446|ORDEM CARREGAMENTO/.test(U)) return 'pscf';
     if (/ANEXO IV/.test(U) && /RELATORIO DE CARGA/.test(U)) return 'anexo4';
@@ -152,7 +169,7 @@
     if (/SIGSIF/.test(U.slice(0, 1500))) return 'sigsif';
     return 'outro';
   }
-  var TYPES = { pscf: 'Relatório PSCF 7446', anexo4: 'Anexo IV', csn: 'CSN', csi: 'CSI', dcpoa: 'DCPOA', sigsif: 'SIGSIF', ficha: 'Ficha do SIF', outro: 'Não reconhecido' };
+  var TYPES = { pscf: 'Relatório PSCF 7446', anexo4: 'Anexo IV', csn: 'CSN', csi: 'CSI', dcpoa: 'DCPOA', sigsif: 'SIGSIF', hashdata: 'HashData (guia de carregamento)', dcpoanova: 'Nova DCPOA emitida', sigsifexp: 'SIGSIF da exportação', nf: 'Nota fiscal', croqui: 'Croqui', ficha: 'Ficha do SIF', outro: 'Não reconhecido' };
   function numPadrao(n) { n = String(n).trim(); return /^[NI]\d-\d{8}\/[A-Z0-9]+(?:-[A-Z]+)?\/\d{2}$/.test(n) || /^\d{6}\/\d{2,5}\/\d{2}$/.test(n); }
   function tipoNum(n) { n = norm(n).trim(); return /^N\d-/.test(n) ? 'csn' : /^I\d-/.test(n) ? 'csi' : 'dcpoa'; }
   function isResp(t) { return t === 'csn' || t === 'csi' || t === 'dcpoa' || t === 'sigsif'; }
@@ -223,8 +240,12 @@
     var R = { destino: '', ref: '', oc: '', mercado: '', lines: [], resumo: [], habil: {} }, sec = 'cab', prod = null, sif = null;
     var DET = /(?:([A-Z0-9][A-Z0-9.\/-]*\d[A-Z0-9.\/-]*)\s+)?(\d{2}\/\d{2}\/\d{4})\s+(\d{2}\/\d{2}\/\d{4})\s+(\d{2}\/\d{2}\/\d{4})\s+(\d{2}\/\d{2}\/\d{4})\s+(\d+)\s+(\d{6,10})\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)\s+(\d+)\s+(\d{3,4}\/\d{2,5})\s*(.*)$/;
     var RES = /(\d{2}\/\d{2}\/\d{4})\s+(\d{2}\/\d{2}\/\d{4})\s+(\d+)\s+(\d{6,10})\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)\s*$/;
-    pages.forEach(function (pg) { pg.lines.forEach(function (L) {
+    pages.forEach(function (pg) { pg.lines.forEach(function (L, li) {
       var t = L.text, U = norm(t), m;
+      if (L._junta) return;
+      // número do certificado quebrado em duas linhas ("N0-" / "00598842/3837/26")
+      var nx = pg.lines[li + 1];
+      if (/(?:^|\s)[A-Z0-9]{2}-\s+\d{2}\/\d{2}\/\d{4}/.test(U) && nx && (m = /^\s*(\d{8}\/[A-Z0-9-]{2,8}\/\d{2})\s*$/.exec(norm(nx.text)))) { t = t.replace(/([A-Z0-9]{2}-)(\s+\d{2}\/)/i, '$1' + m[1] + '$2'); U = norm(t); nx._junta = true; }
       if ((m = /DESTINO\s*:\s*([A-Z ]+?)(?:\s+PLACA|\s*$)/.exec(U)) && !R.destino) R.destino = m[1].trim();
       if ((m = /REFERENCIA\s*:\s*(.+?)(?:\s+PLACA|$)/.exec(U)) && !R.ref) R.ref = m[1].trim();
       if ((m = /O\.C\.?\s*:\s*(\d+)/.exec(U)) && !R.oc) R.oc = m[1];
@@ -287,6 +308,9 @@
           if (colX && w.x1) { var cx = (w.x0 + w.x1) / 2, best = null; Object.keys(colX).forEach(function (k) { if (best == null || Math.abs(colX[k] - cx) < Math.abs(colX[best] - cx)) best = k; }); col = best; }
           if (!cur.certs.some(function (c) { return c.key === mm[2]; })) cur.certs.push({ num: num, key: mm[2], col: col });
         }
+        var rd = /(?:^|[^\d\/])(\d{6}\/\d{2,5}\/\d{2})(?![\d\/])/g;
+        while ((mm = rd.exec(s))) { var dn = mm[1], dk = certKey(dn);
+          if (!cur.certs.some(function (c) { return c.key === dk; })) cur.certs.push({ num: dn, key: dk, col: 'DCPOA' }); }
       });
       if ((m = ROW.exec(L.text))) {
         if (m[1]) prodSif = m[1];
@@ -300,11 +324,109 @@
   // container e data de carregamento: procura o rótulo e o valor perto dele (linha ou célula seguinte)
   function cargaInfo(R, pages) {
     var flat = norm(pages.map(function (p) { return p.lines.map(function (l) { return l.text; }).join(' \n '); }).join(' \n ')).replace(/[ \t]+/g, ' '), m;
+    if ((m = /INICIO CARREG\.?\s*:\s*(\d{2}\/\d{2}\/\d{4})(?:\s+(\d{2}:\d{2}))?/.exec(flat))) { R.dtCarreg = m[1]; R.hrIni = m[2] || ''; }
+    if ((m = /FIM CARREG\.?\s*:\s*(\d{2}\/\d{2}\/\d{4})(?:\s+(\d{2}:\d{2}))?/.exec(flat))) { R.dtFim = m[1]; R.hrFim = m[2] || ''; }
+    if ((m = /LACRE OFICIAL[^:]*:\s*(\d{3,8}\s*\/\s*SIF\s*\d{2,5})/.exec(flat))) R.lacre = m[1].replace(/\s/g, '');
+    if ((m = /TEMPERATURA INICIO\s*:\s*(-?\d+,\d+)/.exec(flat))) R.tIni = m[1];
+    if ((m = /TEMPERATURA MEIO\s*:\s*(-?\d+,\d+)/.exec(flat))) R.tMeio = m[1];
+    if ((m = /TEMPERATURA FINAL\s*:\s*(-?\d+,\d+)/.exec(flat))) R.tFim = m[1];
+    if ((m = /TERMOGRAFO\s*:?\s*([A-Z]{2,5}\d{6,14})/.exec(flat))) R.termografo = m[1];
+    if ((m = /TOTAL DOS ITENS DA CARGA\s*:\s*([\d.]+)\s+([\d.]+,\d{3})/.exec(flat))) { R.totVol = parseNum(m[1], true); R.totPL = parseNum(m[2], true); }
     if ((m = /CONT(?:A|E)INER\W{0,12}?([A-Z]{4}\s?-?\s?\d{6}\s?-?\s?\d)\b/.exec(flat))) R.container = m[1].replace(/[\s-]/g, '');
     else if ((m = /CONT(?:A|E)INER\s*(?:N[º°O]\.?)?\s*:\s*([A-Z0-9][A-Z0-9-]{5,14})\b/.exec(flat)) && /\d/.test(m[1])) R.container = m[1];
-    if ((m = /CARREGAMENTO\W{0,25}?(\d{2}\/\d{2}\/\d{2,4})/.exec(flat))) R.dtCarreg = m[1];
+    if (R.dtCarreg) {} else if ((m = /CARREGAMENTO\W{0,25}?(\d{2}\/\d{2}\/\d{2,4})/.exec(flat))) R.dtCarreg = m[1];
     else if ((m = /(?:DATA|DT\.?)\s*(?:DE|DO)?\s*(?:EMBARQUE|ESTUFAGEM)\W{0,25}?(\d{2}\/\d{2}\/\d{2,4})/.exec(flat))) R.dtCarreg = m[1];
   }
+
+
+  /* ---------- DCPOA (respaldo e nova), HashData, SIGSIF da exportação, NF ---------- */
+  function linhasDe(pages) { var a = []; pages.forEach(function (p) { p.lines.forEach(function (l) { a.push(l); }); }); return a; }
+  function plano(pages) { return norm(linhasDe(pages).map(function (l) { return l.text; }).join(' \n ')).replace(/[ \t]+/g, ' '); }
+  function ano4(d) { var m = /(\d{2})\/(\d{2})\/(\d{2,4})/.exec(d || ''); return m ? m[1] + '/' + m[2] + '/' + (m[3].length === 2 ? '20' + m[3] : m[3]) : ''; }
+  function valorApos(L, i, re) { for (var k = i + 1; k < Math.min(L.length, i + 4); k++) if (re.test(norm(L[k].text))) return norm(L[k].text); return ''; }
+  function parseDcpoa(pages) {
+    var L = linhasDe(pages), F = plano(pages), m, D = { prods: [], destinos: {}, temps: {}, croquis: [], nfs: [], transito: [] };
+    if ((m = /N[º°O]\s*(\d{6}\/\d{2,5}\/\d{2})/.exec(F))) D.numero = m[1];
+    if ((m = /SUBSTITUI A DE NUMERO\s*(\d{6}\/\d{2,5}\/\d{2})/.exec(F))) D.substitui = m[1];
+    if ((m = /1\.\s*N[º°O] DE REGISTRO[^:]*SIF N[º°O]\s*:\s*(\d{2,5})/.exec(F))) D.sifExp = m[1];
+    if ((m = /FINALIDADE DA DCPOA\s*:\s*([^.\n]+)/.exec(F))) D.finalidade = m[1].trim();
+    L.forEach(function (l, i) { var U = norm(l.text), v;
+      if (/3\.1\.?\s*DATA/.test(U) && (v = valorApos(L, i, /\d{2}\/\d{2}\/\d{4}/))) { var a = /(\d{2}\/\d{2}\/\d{4})\s+(\d{2}:\d{2})\s+(\S+)\s+(.*)$/.exec(v);
+        if (a) { D.verifData = a[1]; D.verifHora = a[2]; D.placa = a[3]; var c = /([A-Z]{4}\s?\d{6}\s?-?\d)/.exec(a[4]); D.contentor = c ? c[1].replace(/[\s-]/g, '') : (/NAO APLICAVEL/.test(a[4]) ? 'NÃO APLICÁVEL' : ''); } }
+      if (/4\.1\.?\s*DATA DE INICIO/.test(U) && (v = valorApos(L, i, /\d{2}\/\d{2}\/\d{4}/))) { var b = v.match(/\d{2}\/\d{2}\/\d{4}/g) || []; D.iniData = b[0]; D.fimData = b[1]; D.lacData = b[2]; var lc = /(\d{3,8}\s*\/\s*SIF\s*\d{2,5})/.exec(v); if (lc) D.lacre = lc[1].replace(/\s/g, ''); }
+      if (/4\.1\.1\.?\s*HORARIO/.test(U) && (v = valorApos(L, i, /\d{2}:\d{2}/))) { var h = v.match(/\d{2}:\d{2}/g) || []; D.iniHora = h[0]; D.fimHora = h[1]; D.lacHora = h[2]; }
+    });
+    // 11. destino dos produtos (só a coluna da esquerda, antes do item 12)
+    var i11 = L.findIndex(function (l) { return /11\.\s*DESTINO DOS PRODUTOS/.test(norm(l.text)); });
+    if (i11 >= 0) { var w12 = null; for (var k = i11; k < Math.min(L.length, i11 + 3) && w12 == null; k++) L[k].words.forEach(function (w) { if (w12 == null && /^12\.(\s|$)/.test(w.str.trim())) w12 = w.x0; });
+      var txt = ''; for (k = i11 + 1; k < Math.min(L.length, i11 + 12); k++) { var U2 = norm(L[k].text); if (/DCPOA VERSAO|13\.\s*RASTREAB/.test(U2)) break; txt += ' ' + L[k].words.filter(function (w) { return w12 == null || w.x0 < w12 - 4; }).map(function (w) { return w.str; }).join(' '); }
+      var re = /PRODUTO\s*(\d)\s*:\s*(.*?)(?=PRODUTO\s*\d\s*:|$)/g; txt = norm(txt); while ((m = re.exec(txt))) { var d = m[2].replace(/PARA OS DESTINOS PRETENDIDOS\??|\b(SIM|NAO)\s*$/g, ' ').replace(/\s+/g, ' ').trim(); if (d && !/^-+$/.test(d)) D.destinos[m[1]] = d; } }
+    // 13. rastreabilidade
+    var cur = null;
+    L.forEach(function (l) { var U = norm(l.text), a;
+      if ((a = /NOMENCLATURA\s*:\s*(.*?)\s*LOTE\s*:\s*(.*)$/.exec(U))) { cur = { n: String(D.prods.length + 1), nome: a[1].trim(), lotesTxt: a[2].trim(), lotes: (a[2].match(/\d{8}/g) || []) }; if (/^-+$/.test(cur.nome) || !cur.nome) { cur = null; return; } D.prods.push(cur); return; }
+      if (cur && !cur.rotulo && (a = /^(?:\d\.\s*)?(\d{4}\/\d{2,5})\s+(.+?)\s+(\d{3,})\s+(\d{2}\/\d{2}\/\d{2})\s*-\s*(\d{2}\/\d{2}\/\d{2})\s+(\d{2}\/\d{2}\/\d{2})\s*-\s*(\d{2}\/\d{2}\/\d{2})\s+(.+?)\s+([\d.]+)\s+([\d.]+,\d{3})\s*KG/.exec(U))) {
+        cur.rotulo = a[1]; cur.marca = a[2].trim(); cur.codigo = a[3]; cur.prodIni = ano4(a[4]); cur.prodFim = ano4(a[5]); cur.valIni = ano4(a[6]); cur.valFim = ano4(a[7]); cur.natureza = a[8]; cur.vol = parseNum(a[9], true); cur.peso = parseNum(a[10], true); }
+    });
+    if ((m = /\bTOTAL\s+(\d[\d.]*)\s+([\d.]+,\d{3})/.exec(F))) { D.totVol = parseNum(m[1], true); D.totPeso = parseNum(m[2], true); }
+    var tr = /PRODUTO\s*(\d)\s+(-?\d+,\d+)\s+(-?\d+,\d+)\s+(-?\d+,\d+)\s+(-?\d+,\d+)/g; while ((m = tr.exec(F))) D.temps[m[1]] = { ini: m[2], meio: m[3], fim: m[4], reg: m[5] };
+    var rs = (/DOCUMENTOS DE RESPALDO[^:]*:(.*?)DECLARO/.exec(F.replace(/\n/g, ' ')) || [])[1] || ''; D.respaldoTxt = rs.trim();
+    var cq = /CROQUI\s*:\s*(\d{4}\/\d{2,5})/g; while ((m = cq.exec(rs))) D.croquis.push(m[1]);
+    var nf = /NOTA FISCAL\s*:\s*(\d{3,9})/g; while ((m = nf.exec(rs))) D.nfs.push(m[1]);
+    if ((m = /ANEXO IV\s*-?\s*N[º°O]?\s*([\d\s\/]+\d)/.exec(rs))) D.anexo4 = m[1].replace(/\s/g, '');
+    var tt = /DCPOA DE TRANSITO\s*(?:N[º°O]\s*)?(\d{6}\/\d{2,5}\/\d{2})/g, FF = F.replace(/\n/g, ' '); while ((m = tt.exec(FF))) D.transito.push(m[1]);
+    D.oficio = (/OFICIO[- ]CIRCULAR[^.]{0,60}/.exec(FF) || [''])[0].trim();
+    D.lotesNoAnexo = /LOTES DESCRITOS NO RELATORIO DE RASTREABILIDADE|LOTES? DESCRITOS? NO ANEXO IV/.test(FF);
+    return D;
+  }
+  // HashData (guia de carregamento): pergunta → resposta
+  function parseHash(pages) {
+    var H = { qa: {}, pagQ: {} }, ax = null, lastQ = null;
+    // coluna da resposta: onde começa a palavra que vem depois de um vão largo nas linhas "N. pergunta   resposta"
+    var cands = []; pages.forEach(function (pg) { pg.lines.forEach(function (l) { if (!/^\d{1,3}\.\s/.test(l.text) || l.words.length < 2) return;
+      for (var q = 1; q < l.words.length; q++) if (l.words[q].x0 - l.words[q - 1].x1 > 15 && l.words[q].x0 > (pg.w || 600) * 0.35) { cands.push(l.words[q].x0); break; } }); });
+    if (cands.length) ax = Math.min.apply(null, cands) - 4;
+    pages.forEach(function (pg) {
+      pg.lines.forEach(function (l) { var U = norm(l.text), m = /^(\d{1,3})\.\s*(.+)$/.exec(U); if (!m) return;
+        var q = l.words.filter(function (w) { return ax == null || w.x0 < ax; }).map(function (w) { return w.str; }).join(' '), a = l.words.filter(function (w) { return ax != null && w.x0 >= ax; }).map(function (w) { return w.str; }).join(' ');
+        H.qa[m[1]] = { q: norm(q).replace(/^\d{1,3}\.\s*/, '').trim(), a: a.trim() }; H.pagQ[m[1]] = pg.n; });
+    });
+    var ach = function (re, nao) { var k = Object.keys(H.qa).find(function (k) { var q = H.qa[k].q; return re.test(q) && !(nao && nao.test(q)); }); return k ? { n: k, a: H.qa[k].a } : null; }, x;
+    var v = function (re, nao) { x = ach(re, nao); return x ? x.a : ''; };
+    H.container = v(/N[°º]?\s*DO CONTEINER|N[°º]?\s*DO CONTAINER/).replace(/[\s-]/g, '');
+    H.tipoVeiculo = v(/TIPO DE VEICULO/); H.armador = v(/^ARMADOR/);
+    H.oc = v(/OC\.?\s*PSCF/); H.ordem = v(/^ORDEM DE CARGA$/); H.destino = v(/^DESTINO$/); H.mercado = v(/^MERCADO$/);
+    H.tIni = v(/^TEMPERATURA INICIO/); H.tMeio = v(/^TEMPERATURA MEIO/); H.tFim = v(/^TEMPERATURA FIM/); H.tMedia = v(/MEDIA DAS TEMPERATURAS/);
+    H.termografo = v(/NUMERO DO TERMOGRAFO/); H.lacre = v(/LACRE SIF/).replace(/\s/g, '');
+    var dh = function (s) { var m = /(\d{2}\/\d{2}\/\d{4}),?\s*(\d{2}:\d{2})?/.exec(s || ''); return m ? { d: m[1], h: m[2] || '' } : { d: '', h: '' }; };
+    H.verif = dh(v(/INICIO DA VERIFICACAO DO VEICULO/)); H.ini = dh(v(/INICIO DO CARREGAMENTO/)); H.fim = dh(v(/FIM DA OPERACAO/));
+    // páginas de fotos a ler com OCR: ordem de carga, termógrafo e lacre
+    var fotos = []; Object.keys(H.qa).forEach(function (k) { if (/FOTO DA ORDEM DE CARGA|FOTO DO TERMOGRAFO|NUMERO DO TERMOGRAFO|^FOTO DO LACRE$|LACRE SIF/.test(H.qa[k].q)) fotos.push(k); });
+    var qs = Object.keys(H.pagQ).map(Number).sort(function (x, y) { return x - y; });
+    H.fotoPags = []; fotos.forEach(function (k) { var pi = H.pagQ[k], nx = qs.find(function (q) { return q > +k; }), pf = nx ? H.pagQ[nx] : pi + 3; pf = Math.min(pf, pi + 5, pages.length);
+      for (var g = pi; g <= pf; g++) if (H.fotoPags.indexOf(g) < 0) H.fotoPags.push(g); });
+    return H;
+  }
+  function parseSigExp(pages) {
+    var F = plano(pages).replace(/\n/g, ' '), m, S = { prods: [] };
+    var g = function (re) { var x = re.exec(F); return x ? x[1].trim() : ''; };
+    S.sif = g(/\bSIF\s*:\s*(\d{2,5})/); S.doc = g(/NR\.? DOCUMENTO DE TRANSITO\s*:\s*([A-Z0-9]{2}-\d{8}\/[A-Z0-9-]+\/\d{2})/); S.modelo = g(/MODELO DOCUMENTO DE TRANSITO\s*:\s*(\S+)/);
+    S.ref = g(/NRO\.? REFERENCIA\s*:\s*(\d{6,8}\/\d{2,5}\/\d{4})/); S.dcpoa = g(/DCPOA DE SOLICITACAO\s*:\s*(\d{6}\/\d{2,5}\/\d{2})/);
+    S.localData = g(/LOCAL E DATA DE CARREGAMENTO\s+(?!\()(.+?)(?=\s+LOCAL E DATA DE CARREGAMENTO)/); S.data = (/(\d{2}\/\d{2}\/\d{4})/.exec(S.localData) || [])[1] || '';
+    var ct = /CONTEINER\(ES\) E LACRE\s+(.+?)(?=\s+ESTABELECIMENTO SOLICITANTE|\s+CODIGO NCM)/.exec(F); S.contLacre = ct ? ct[1] : '';
+    S.container = ((/([A-Z]{4}\s?\d{6}\s?-?\d)/.exec(S.contLacre) || [])[1] || '').replace(/[\s-]/g, ''); S.lacre = ((/(\d{3,8}\s*\/\s*SIF\s*\d{2,5})/.exec(S.contLacre) || [])[1] || '').replace(/\s/g, '');
+    for (var n = 1; n <= 9; n++) {
+      var lt = new RegExp('LOTE E DATA DE PRODUCAO ' + n + '\\s+(?!\\()(.+?)(?=\\s+LOTE E DATA DE PRODUCAO)').exec(F); if (!lt || /^X+$/.test(lt[1].trim())) continue;
+      var num = function (rot) { var x = new RegExp(rot + ' ' + n + '\\s+([\\d.,X]+)').exec(F); return x ? x[1] : ''; };
+      S.prods.push({ n: n, lotes: lt[1].match(/\d{8}/g) || [], abate: num('ESTABELECIMENTO - ABATE'), proc: num('ESTABELECIMENTO - PROCESSADOR'), arm: num('ESTABELECIMENTO -\\s?ARMAZENADOR'), vol: parseNum(num('NUMERO DE EMBALAGENS'), true), peso: parseNum(num('PESO LIQUIDO \\(KG\\)'), true) });
+    }
+    if ((m = /TOTAL DE PECAS\s+([\d.]+)/.exec(F))) S.totVol = parseNum(m[1], true);
+    if ((m = /PESO LIQUIDO TOTAL\s+([\d.]+,\d{2,3})/.exec(F))) S.totPL = parseNum(m[1], true);
+    S.parecer = g(/PARECER DE APROVACAO\s*:\s*([A-Z ]+?)(?=\s+DESCRICAO|$)/);
+    return S;
+  }
+  function parseNF(pages, nome) { var F = plano(pages).replace(/\n/g, ' '), m = /N[º°O]\s*:?\s*(\d{3,9})\b/.exec(F) || /(\d{6,9})\.pdf$/i.exec(nome || '') || /\b(\d{6})\b/.exec(nome || ''); return { numero: m ? String(+m[1]) : '' }; }
+  function parseCroqui(pages, nome) { var m = /(?:CROQUI[_ -]*)(\d{4})/i.exec(nome || '') || /\b(\d{4})\s*\/\s*\d{3,5}\b/.exec(plano(pages)); return { rotulo: m ? m[1] : '' }; }
 
   /* ---------- documentos de respaldo ---------- */
   function findDestField(pages) {
@@ -391,6 +513,19 @@
     if (!Object.keys(pObs.itens).length && obs && /HABILITA/.test(obs)) D.habilObs = paisesDoTexto(obs.replace(/^.*?HABILITA\w*\s*:?\s*/, ''));
     D.habilDoc = cab ? (Object.keys(pCab.itens).length ? pCab.todos : paisesDoTexto(cab)) : [];
     D.destField = cleanCountry(findDestField(pages));
+    if (type === 'dcpoa' && /DECLARACAO DE PRODUTOS DE ORIGEM ANIMAL/.test(U)) {
+      var DP = parseDcpoa(pages); D.dcpoa = DP; if (DP.numero) { D.numero = DP.numero; D.key = certKey(DP.numero); }
+      D.habilItens = {}; D.habilFonte = 'destino dos produtos'; D.habilDoc = [];
+      Object.keys(DP.destinos).forEach(function (n) { D.habilItens[n] = paisesDoTexto(DP.destinos[n]); D.habilItens[n].forEach(function (c) { if (D.habilDoc.indexOf(c) < 0) D.habilDoc.push(c); }); });
+      D.destSif = (/2\.\s*N[º°O] DE REGISTRO[^:]*VIGIAGRO\s*:\s*(\d{2,5})/.exec(flat) || [])[1] || '';
+      DP.prods.forEach(function (pr) {
+        var meses = []; if (pr.valIni && pr.valFim) { var a = pr.valIni.split('/'), b = pr.valFim.split('/'), y = +a[2], mo = +a[1]; while (y < +b[2] || (y === +b[2] && mo <= +b[1])) { meses.push(('0' + mo).slice(-2) + '/' + y); mo++; if (mo > 12) { mo = 1; y++; } if (meses.length > 36) break; } }
+        var dates = parseDates((pr.prodIni ? pr.prodIni + ' A ' + pr.prodFim : '') + ' ' + meses.join(' '));
+        D.rows.push({ page: 1, label: pr.n, name: pr.nome, rotulo: pr.rotulo || '', lots: new Set(pr.lotes), dates: dates, restText: '', vol: pr.vol, peso: pr.peso, sifs: [DP.sifExp].filter(Boolean), marca: pr.marca, habil: D.habilItens[pr.n] || null });
+      });
+      D.rows.forEach(function (r) { r.lots.forEach(function (l) { D.allLots.add(l); }); });
+      return D;
+    }
     if ((m = /DESTINATARIO.{0,140}?SIF\s*(\d{2,5})/.exec(flat))) D.destSif = m[1];
     // tabela de produtos
     pages.forEach(function (pg) {
@@ -606,7 +741,7 @@
   function render() {
     var ul = $('flist'); ul.innerHTML = '';
     files.forEach(function (f) {
-      var li = document.createElement('li'); li.setAttribute('data-k', f.ext === 'xlsx' ? 'XLSX' : 'PDF'); if (f.ext === 'xlsx') li.className = 'xls';
+      var li = document.createElement('li'); li.setAttribute('data-k', f.ext === 'xlsx' ? 'XLSX' : f.ext === 'img' ? 'FOTO' : 'PDF'); if (f.ext === 'xlsx') li.className = 'xls'; if (f.ext === 'img') li.className = 'img';
       var st = f.status === 'lendo' ? '<span class="tag eq">' + esc(f.msg || 'Lendo…') + '</span>' : f.status === 'erro' ? '<span class="tag err">' + esc(f.msg) + '</span>' : '<span class="tag ok">Lido</span>';
       var ocr = f.pages && f.pages.some(function (p) { return p.ocr; }) ? ' <span class="tag warn">OCR</span>' : '';
       var sel = '<select data-id="' + f.id + '" class="ty">' + Object.keys(TYPES).map(function (k) { return '<option value="' + k + '"' + (f.type === k ? ' selected' : '') + '>' + TYPES[k] + '</option>'; }).join('') + '</select>';
@@ -627,21 +762,27 @@
     if (e.target.classList.contains('nu')) { f.numero = e.target.value.trim(); f.key = certKey(f.numero); f.manualNum = true; }
   });
   function prepare(f) {
+    f.extra = null;
+    if (f.type === 'hashdata') f.extra = parseHash(f.pages);
+    if (f.type === 'dcpoanova') { f.extra = parseDcpoa(f.pages); f.numero = f.extra.numero || ''; }
+    if (f.type === 'sigsifexp' || f.type === 'sigsif') { var sx = parseSigExp(f.pages); if (f.type === 'sigsifexp') f.extra = sx; f.sigx = sx; }
+    if (f.type === 'nf') { f.extra = parseNF(f.pages, f.name); f.numero = f.extra.numero; }
+    if (f.type === 'croqui') f.extra = parseCroqui(f.pages, f.name);
     if (isResp(f.type)) { f.parsed = parseRespaldo(f.pages, f.type); if (!f.manualNum) { f.numero = f.parsed.numero; f.key = f.parsed.key; } }
   }
   var queue = Promise.resolve();
   function addFiles(list) {
     Array.prototype.forEach.call(list, function (file) {
-      var ext = /\.xls[xm]$/i.test(file.name) ? 'xlsx' : /\.pdf$/i.test(file.name) ? 'pdf' : '';
+      var ext = /\.xls[xm]$/i.test(file.name) ? 'xlsx' : /\.pdf$/i.test(file.name) ? 'pdf' : /\.(jpe?g|png|webp|bmp)$/i.test(file.name) ? 'img' : '';
       if (!ext) return;
       var f = { id: ++seq, file: file, name: file.name, ext: ext, status: 'lendo', prog: 0, msg: 'Na fila' };
       files.push(f);
       queue = queue.then(async function () {
         try {
           f.msg = 'Lendo…'; render();
-          f.pages = ext === 'xlsx' ? await readXlsx(f) : await readPdf(f, function (p, m) { f.prog = p; f.msg = m; render(); }, $('forceocr').checked);
+          f.pages = ext === 'xlsx' ? await readXlsx(f) : ext === 'img' ? await readImg(f, function (p, m) { f.prog = p; f.msg = m; render(); }) : await readPdf(f, function (p, m) { f.prog = p; f.msg = m; render(); }, $('forceocr').checked);
           var txt = f.pages.map(function (p) { return p.lines.map(function (l) { return l.text; }).join('\n'); }).join('\n');
-          f.type = classify(txt); f.status = 'ok'; prepare(f);
+          f.type = classify(txt, f.name); f.status = 'ok'; prepare(f);
         } catch (e) { f.status = 'erro'; f.msg = 'Não consegui ler: ' + (e && e.message || e); }
         render();
       });
@@ -662,7 +803,12 @@
   function analyse() {
     var issues = [], seen = {}, add = function (k, t, d) { if (seen[k + t]) return; seen[k + t] = 1; issues.push({ k: k, t: t, d: d }); }, E = function (t, d) { add('err', t, d); }, W = function (t, d) { add('warn', t, d); };
     var pscfF = files.find(function (f) { return f.type === 'pscf' && f.status === 'ok'; }), anxF = files.find(function (f) { return f.type === 'anexo4' && f.status === 'ok'; });
+    var A0 = anxF ? parseAnexo(anxF.pages) : null, mudou = false;
+    files.forEach(function (f) { if (f.type === 'sigsif' && f.sigx && A0 && ((f.sigx.ref && f.sigx.ref.replace(/\D/g, '') === (A0.sigsif || '').replace(/\D/g, '')) || (f.sigx.sif && f.sigx.sif === A0.sif))) { f.type = 'sigsifexp'; prepare(f); mudou = true; } });
+    if (mudou) render();
     var resp = files.filter(function (f) { return isResp(f.type) && f.status === 'ok'; });
+    var EXP = { H: null, N: null, S: null, nf: [], croqui: [], fH: null };
+    files.forEach(function (f) { if (f.status !== 'ok' || !f.extra) return; if (f.type === 'hashdata' && !EXP.H) { EXP.H = f.extra; EXP.fH = f; } if (f.type === 'dcpoanova' && !EXP.N) EXP.N = f.extra; if (f.type === 'sigsifexp' && !EXP.S) EXP.S = f.extra; if (f.type === 'nf') EXP.nf.push(f.extra); if (f.type === 'croqui') EXP.croqui.push(f.extra); });
     var out = $('out'); out.classList.remove('hide');
     if (!pscfF) { out.innerHTML = '<div class="panel"><ul class="issues"><li class="err"><span class="w">Falta o relatório PSCF 7446.</span> Ele é a base da conferência (Excel ou PDF).</li></ul></div>'; return; }
     var P = parsePSCF(pscfF.pages, pscfF.ext === 'pdf'), A = anxF ? parseAnexo(anxF.pages) : null;
@@ -699,7 +845,7 @@
       if (doc.type !== tipoPscf && isResp(doc.type)) W(cert + ': pelo número é ' + TYPES[tipoPscf] + ', mas o arquivo foi lido como ' + TYPES[doc.type] + '.', 'Confira o tipo na lista de arquivos.');
       var G = {}, addG = function (kind, msg, lote) { var kk = kind + '|' + msg; (G[kk] = G[kk] || { kind: kind, msg: msg, lots: [] }); if (G[kk].lots.indexOf(lote) < 0) G[kk].lots.push(lote); };
       var D = doc.parsed, tipo = TYPES[doc.type], perRow = {}, viaOcr = doc.pages.some(function (p) { return p.ocr; }), Q = viaOcr ? W : E, qn = viaOcr ? ' (número lido por OCR: confira no documento)' : '';
-      if (doc.type === 'csn' && D.destSif && A && A.sif && D.destSif !== A.sif) E(cert + ': destinatário é o SIF ' + D.destSif + ', mas a carga sai do SIF ' + A.sif + '.', 'Confira se o ' + tipo + ' é mesmo o respaldo deste armazenador.');
+      if ((doc.type === 'csn' || doc.type === 'dcpoa') && D.destSif && A && A.sif && D.destSif !== A.sif) E(cert + ': destinatário é o SIF ' + D.destSif + ', mas a carga sai do SIF ' + A.sif + '.', 'Confira se o ' + tipo + ' é mesmo o respaldo deste armazenador.');
       if (doc.type === 'csi' && D.destField && destino && countries(D.destField).indexOf(destino) < 0) E(cert + ': CSI emitido para ' + D.destField + ', mas a carga vai para ' + destino + '.', '');
       var noRot = false;
       ls.forEach(function (l) {
@@ -722,7 +868,10 @@
           var pk = row.label; perRow[pk] = perRow[pk] || { row: row, vol: 0, pl: 0 }; perRow[pk].vol += l.vol || 0; perRow[pk].pl += l.pl || 0;
         }
         if (row && row.habilFalta) probs.push('o item ' + row.label + ' não aparece na habilitação por item do documento (' + (D.habilFonte || 'Observações') + '; itens citados: ' + row.habilFalta + ')');
-        else if (destino) { var ch = checaHab(rgOf(l), h.list, doc.type, doc); ch.probs.forEach(function (x) { probs.push(x); }); ch.warns.forEach(function (x) { if (warns.indexOf(x) < 0) warns.push(x); }); }
+        else if (destino) { var ch = checaHab(rgOf(l), h.list, doc.type, doc);
+          var lib = doc.type === 'dcpoa' && EXP.N && EXP.N.oficio && EXP.N.transito.some(function (t) { return certKey(t) === doc.key; });
+          if (lib) ch.probs = ch.probs.filter(function (x) { if (/NAO PODE SER DCPOA DE TRANSITO/.test(norm(x))) { warns.push('DCPOA de trânsito em destino que exige habilitação: a nova DCPOA cita o ' + EXP.N.oficio.replace(/\s+/g, ' ') + '; confirmar se o produto e o destino estão cobertos'); return false; } return true; });
+          ch.probs.forEach(function (x) { probs.push(x); }); ch.warns.forEach(function (x) { if (warns.indexOf(x) < 0) warns.push(x); }); }
         if (l.marca && norm(D.text).indexOf(norm(l.marca)) < 0 && doc.type === 'csn') probs.push('marca ' + l.marca + ' não aparece no ' + tipo);
         probs.forEach(function (x) { addG('err', x, l.lote); }); warns.forEach(function (x) { addG('warn', x, l.lote); });
         lotRows.push({ l: l, row: row, hab: h, doc: doc, st: probs.length ? 'err' : warns.length ? 'warn' : 'ok', msg: probs.concat(warns).join('; ') });
@@ -776,10 +925,11 @@
     }
     function l0(pr) { return pr.lots.length; }
 
-    paint(P, A, issues, lotRows, axRows, resp, RG);
+    var GRADE = confereExportacao(P, A, EXP, E, W);
+    paint(P, A, issues, lotRows, axRows, resp, RG, GRADE, EXP);
   }
 
-  function paint(P, A, issues, lotRows, axRows, resp, RG) {
+  function paint(P, A, issues, lotRows, axRows, resp, RG, GRADE, EXP) {
     var nE = issues.filter(function (i) { return i.k === 'err'; }).length, nW = issues.length - nE;
     var nOk = lotRows.filter(function (r) { return r.st === 'ok'; }).length;
     var h = '<div class="sum"><div class="kpi ' + (nE ? 'err' : 'ok') + '"><b>' + nE + '</b><span>divergência' + (nE === 1 ? '' : 's') + '</span></div>' +
@@ -808,6 +958,7 @@
     function li(i) { return '<li class="' + i.k + '"><span class="w">' + (i.k === 'err' ? '✕' : '!') + '</span>' + esc(i.t) + (i.d ? '<small>' + esc(i.d) + '</small>' : '') + '</li>'; }
     function ic(st) { return '<span class="ico ' + st + '">' + (st === 'ok' ? '✓' : st === 'err' ? '✕' : '!') + '</span>'; }
 
+    if (GRADE && GRADE.cols.length > 1) h += blocoExportacao(GRADE, EXP);
     h += '<details class="blk"><summary><h3>Lotes do PSCF (' + lotRows.length + ')</h3></summary><div class="tw"><table><thead><tr><th></th><th>Documento</th><th>Lote</th><th class="n">Vol.</th><th class="n">Peso líq.</th><th>Rótulo</th><th>Item</th><th>Observação</th></tr></thead><tbody>' +
       lotRows.map(function (r) { var l = r.l, tp = l.cert ? TYPES[r.doc ? r.doc.type : tipoNum(l.cert)] : ''; var rot = r.row && r.row.rotulo && r.row.rotulo !== l.rotulo ? l.rotulo + ' × ' + r.row.rotulo : l.rotulo;
         return '<tr class="' + (r.st === 'err' ? 'bad' : r.st === 'warn' ? 'wrn' : '') + '"><td>' + ic(r.st) + '</td><td class="mono"><span class="tag eq">' + esc(tp) + '</span> ' + esc(l.cert || '—') + '</td><td class="mono">' + esc(l.lote) + '</td><td class="n">' + fmtN(l.vol) + '</td><td class="n">' + fmtN(l.pl, 3) + '</td><td class="mono">' + esc(rot) + '</td><td>' + esc(r.row ? r.row.label : '—') + '</td><td>' + esc(r.msg || '') + '</td></tr>'; }).join('') + '</tbody></table></div></details>';
@@ -827,9 +978,129 @@
     });
     if (resp.length) h += '</div></details>';
     h += '<div class="wm" aria-hidden="true"><div></div></div>';
-    $('out').innerHTML = h; ligaFerramentas();
+    $('out').innerHTML = h; ligaFerramentas(); ligaFotos(EXP);
     $('out').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
+
+  /* ---------- documentos da exportação: HashData, nova DCPOA, SIGSIF, NF e croqui ---------- */
+  var dig = function (x) { return String(x || '').replace(/\D/g, ''); };
+  var NORMS = {
+    num: function (x) { return dig(x); }, txt: function (x) { return norm(x).replace(/[^A-Z0-9]/g, ''); },
+    t: function (x) { var n = parseFloat(String(x || '').replace(',', '.')); return isNaN(n) ? '' : n.toFixed(2); },
+    q: function (x) { return x == null || x === '' ? '' : (+x).toFixed(3); }, d: function (x) { return x ? ano4(x) : ''; }
+  };
+  function confereExportacao(P, A, X, E, W) {
+    var H = X.H, N = X.N, S = X.S, cols = [{ k: 'p', t: 'PSCF' }];
+    if (A) cols.push({ k: 'a', t: 'Anexo IV' }); if (H) cols.push({ k: 'h', t: 'HashData' }); if (N) cols.push({ k: 'n', t: 'Nova DCPOA' }); if (S) cols.push({ k: 's', t: 'SIGSIF' });
+    if (!H && !N && !S) return { cols: cols, rows: [] };
+    var sumA = function (f) { if (!A) return null; var t = 0, any = false; A.prods.forEach(function (p) { p.lots.forEach(function (l) { if (l[f] != null) { t += l[f]; any = true; } }); }); return any ? t : null; };
+    var sumP = function (f) { var t = 0; P.lines.forEach(function (l) { t += l[f] || 0; }); return P.lines.length ? t : null; };
+    var codN = N ? Array.from(new Set(N.prods.map(function (p) { return p.codigo; }).filter(Boolean))).join(', ') : '';
+    var destN = N ? Array.from(new Set(Object.keys(N.destinos).map(function (k) { return N.destinos[k]; }))).join(' / ') : '';
+    var t1 = N && N.temps['1'] ? N.temps['1'] : {};
+    var R = [
+      { c: 'O.C.', n: 'num', v: { p: P.oc, h: H && H.oc } },
+      { c: 'Relatório de embarque', n: 'num', v: { p: dig(P.ref), a: A && A.embarque, h: H && H.ordem, n: codN } },
+      { c: 'Destino', n: 'dest', v: { p: P.destino, a: A && A.destino, h: H && H.destino, n: destN } },
+      { c: 'Container', n: 'txt', v: { p: P.container, h: H && H.container, n: N && N.contentor, s: S && S.container } },
+      { c: 'Lacre SIF', n: 'txt', v: { p: P.lacre, h: H && H.lacre, n: N && N.lacre, s: S && S.lacre } },
+      { c: 'Data do carregamento', n: 'd', v: { p: P.dtCarreg, h: H && H.ini.d, n: N && N.iniData, s: S && S.data } },
+      { c: 'Verificação do veículo', n: 'txt', v: { h: H && (H.verif.d + ' ' + H.verif.h).trim(), n: N && ((N.verifData || '') + ' ' + (N.verifHora || '')).trim() } },
+      { c: 'Início do carregamento', n: 'txt', nc: ['p'], v: { p: P.hrIni, h: H && H.ini.h, n: N && N.iniHora } },
+      { c: 'Fim do carregamento', n: 'txt', nc: ['p'], v: { p: P.hrFim, h: H && H.fim.h, n: N && N.fimHora } },
+      { c: 'Temperatura início', n: 't', v: { p: P.tIni, h: H && H.tIni, n: t1.ini } },
+      { c: 'Temperatura meio', n: 't', v: { p: P.tMeio, h: H && H.tMeio, n: t1.meio } },
+      { c: 'Temperatura fim', n: 't', v: { p: P.tFim, h: H && H.tFim, n: t1.fim } },
+      { c: 'Termógrafo', n: 'txt', v: { p: P.termografo, h: H && H.termografo } },
+      { c: 'Volumes', n: 'num', f: 0, v: { p: P.totVol != null ? P.totVol : sumP('vol'), a: sumA('vol'), n: N && N.totVol, s: S && S.totVol } },
+      { c: 'Peso líquido (kg)', n: 'q', f: 3, v: { p: P.totPL != null ? P.totPL : sumP('pl'), a: sumA('pl'), n: N && N.totPeso, s: S && S.totPL } },
+      { c: 'Nº da nova DCPOA', n: 'txt', v: { n: N && N.numero, s: S && S.dcpoa } },
+      { c: 'Referência SIGSIF', n: 'num', v: { a: A && A.sigsif, s: S && S.ref } }
+    ];
+    var tem = {}; cols.forEach(function (c) { tem[c.k] = 1; });
+    R.forEach(function (r) {
+      Object.keys(r.v).forEach(function (k) { if (!tem[k]) delete r.v[k]; });
+      var ks = Object.keys(r.v).filter(function (k) { return r.v[k] != null && r.v[k] !== '' && !(r.nc && r.nc.indexOf(k) >= 0); });
+      r.st = ''; if (ks.length < 2) return;
+      if (r.n === 'dest') { var base = cl(r.v.p || r.v.a || ''), ruins = ks.filter(function (k) { return cl(r.v[k]).indexOf(base) < 0 && base.indexOf(cl(r.v[k])) < 0; }); r.st = ruins.length ? 'err' : 'ok'; r.bad = ruins; }
+      else { var nv = {}; ks.forEach(function (k) { nv[k] = NORMS[r.n](r.v[k]); }); var vs = Array.from(new Set(ks.map(function (k) { return nv[k]; }))); r.st = vs.length > 1 ? 'err' : 'ok';
+        if (vs.length > 1) { var cnt = {}; ks.forEach(function (k) { cnt[nv[k]] = (cnt[nv[k]] || 0) + 1; }); var maj = Object.keys(cnt).sort(function (a, b) { return cnt[b] - cnt[a]; })[0]; r.bad = cnt[maj] > 1 ? ks.filter(function (k) { return nv[k] !== maj; }) : ks; } }
+      if (r.st === 'err') E(r.c + ' diferente entre os documentos da exportação.', ks.map(function (k) { return cols.find(function (c) { return c.k === k; }).t + ': ' + fmtV(r, r.v[k]); }).join(' · '));
+    });
+    // nova DCPOA
+    if (N) {
+      if (N.finalidade && !/SOLICITACAO/.test(N.finalidade)) W('Nova DCPOA: a finalidade é "' + N.finalidade + '".', 'Para a exportação o esperado é Solicitação de Certificado Sanitário.');
+      if (A && A.sif && N.sifExp && N.sifExp !== A.sif) E('Nova DCPOA emitida pelo SIF ' + N.sifExp + ', mas a carga sai do SIF ' + A.sif + '.', '');
+      var porRot = {}; P.lines.forEach(function (l) { (porRot[l.rotulo] = porRot[l.rotulo] || []).push(l); });
+      N.prods.forEach(function (pr) {
+        var ls = porRot[pr.rotulo], tag = 'Nova DCPOA, produto ' + pr.n + ' (' + (pr.rotulo || 'sem rótulo') + ')';
+        if (!ls) { E(tag + ': rótulo não está no PSCF.', 'Rótulos do PSCF: ' + Object.keys(porRot).join(', ')); return; }
+        var marcas = Array.from(new Set(ls.map(function (l) { return norm(l.marca); }).filter(Boolean)));
+        if (pr.marca && marcas.length && marcas.indexOf(norm(pr.marca)) < 0) E(tag + ': marca ' + pr.marca + ' × ' + marcas.join(', ') + ' no PSCF.', '');
+        var v = 0, pl = 0; ls.forEach(function (l) { v += l.vol || 0; pl += l.pl || 0; });
+        if (pr.vol != null && pr.vol !== v) E(tag + ': ' + fmtN(pr.vol) + ' volumes × ' + fmtN(v) + ' no PSCF.', '');
+        if (pr.peso != null && Math.abs(pr.peso - pl) > 0.01) E(tag + ': ' + fmtN(pr.peso, 3) + ' kg × ' + fmtN(pl, 3) + ' kg no PSCF.', '');
+        var dp = ls.map(function (l) { return l.dtProd; }).filter(Boolean).sort(), dv = ls.map(function (l) { return l.dtVal; }).filter(Boolean).sort();
+        if (dp.length && pr.prodIni && (dmy(pr.prodIni) !== dp[0] || dmy(pr.prodFim) !== dp[dp.length - 1])) E(tag + ': produção ' + pr.prodIni + ' a ' + pr.prodFim + ' × ' + showD(dp[0]) + ' a ' + showD(dp[dp.length - 1]) + ' no PSCF.', '');
+        if (dv.length && pr.valIni && (dmy(pr.valIni) !== dv[0] || dmy(pr.valFim) !== dv[dv.length - 1])) E(tag + ': validade ' + pr.valIni + ' a ' + pr.valFim + ' × ' + showD(dv[0]) + ' a ' + showD(dv[dv.length - 1]) + ' no PSCF.', '');
+        var emb = (A && A.embarque) || dig(P.ref); if (pr.codigo && emb && pr.codigo !== emb) E(tag + ': código de rastreabilidade ' + pr.codigo + ', mas o relatório de embarque é ' + emb + '.', '');
+        if (ls[0].prod && nameScore(ls[0].prod.desc, pr.nome) < 0.75) W(tag + ': nomenclatura diferente do PSCF.', 'Nova DCPOA: ' + pr.nome + ' · PSCF: ' + ls[0].prod.desc);
+        var lp = Array.from(new Set(ls.map(function (l) { return l.lote; })));
+        if (!pr.lotes.length) { if (!N.lotesNoAnexo) E(tag + ': lote não informado e as observações não remetem ao Anexo IV.', 'Lotes do PSCF: ' + lp.join(', ')); }
+        else { var falta = lp.filter(function (x) { return pr.lotes.indexOf(x) < 0; }), sobra = pr.lotes.filter(function (x) { return lp.indexOf(x) < 0; });
+          if (falta.length) E(tag + ': faltam lotes do PSCF.', falta.join(', ')); if (sobra.length) E(tag + ': lote que não está no PSCF.', sobra.join(', ')); }
+        var dpr = N.destinos[pr.n]; if (dpr && P.destino && cl(dpr).indexOf(cl(P.destino)) < 0) E(tag + ': destino ' + dpr + ', mas a carga vai para ' + P.destino + '.', '');
+        var tp = N.temps[pr.n]; if (tp && t1.ini && (tp.ini !== t1.ini || tp.meio !== t1.meio || tp.fim !== t1.fim)) W(tag + ': temperaturas diferentes do produto 1.', '');
+      });
+      Object.keys(porRot).forEach(function (r) { if (!N.prods.some(function (p) { return p.rotulo === r; })) E('Nova DCPOA não traz o rótulo ' + r + ', que está no PSCF.', ''); });
+      if (A && A.numero) { var an = dig(A.numero.replace(/\(.*\)/, '')); if (!N.anexo4) W('Nova DCPOA não cita o Anexo IV nos documentos de respaldo.', 'Anexo IV: ' + A.numero); else if (dig(N.anexo4) !== an) E('Nova DCPOA cita o Anexo IV nº ' + N.anexo4 + ', mas o Anexo IV carregado é o ' + A.numero + '.', ''); }
+      if (X.nf.length) X.nf.forEach(function (nf) { if (nf.numero && N.nfs.map(function (x) { return String(+x); }).indexOf(nf.numero) < 0) E('Nova DCPOA não cita a nota fiscal ' + nf.numero + '.', 'Notas citadas: ' + (N.nfs.join(', ') || 'nenhuma')); });
+      else if (!N.nfs.length) W('Nova DCPOA não cita nota fiscal nos documentos de respaldo.', '');
+      Object.keys(porRot).forEach(function (r) { if (r && N.croquis.indexOf(r) < 0) W('Nova DCPOA não cita o croqui do rótulo ' + r + '.', 'Croquis citados: ' + (N.croquis.join(', ') || 'nenhum')); });
+      X.croqui.forEach(function (c) { if (c.rotulo && !N.croquis.some(function (x) { return x.indexOf(c.rotulo + '/') === 0; })) W('Croqui do rótulo ' + c.rotulo + ' carregado, mas a nova DCPOA não cita.', ''); });
+      var tdc = Array.from(new Set(P.lines.filter(function (l) { return l.cert && tipoNum(l.cert) === 'dcpoa'; }).map(function (l) { return l.cert; })));
+      tdc.forEach(function (c) { if (!N.transito.some(function (t) { return certKey(t) === certKey(c); })) W('Nova DCPOA não cita a DCPOA de trânsito ' + c + ' nas observações.', 'Ela é respaldo de lotes do PSCF.'); });
+      N.transito.forEach(function (t) { if (!tdc.some(function (c) { return certKey(c) === certKey(t); })) E('Nova DCPOA cita a DCPOA de trânsito ' + t + ', que o PSCF não usa.', ''); });
+    }
+    // SIGSIF da exportação
+    if (S) {
+      if (S.parecer && !/APROVADO/.test(S.parecer)) W('SIGSIF ' + (S.ref || '') + ': parecer ' + S.parecer + '.', '');
+      if (A && A.sif && S.sif && S.sif !== A.sif) W('SIGSIF emitido para o SIF ' + S.sif + ', mas a carga sai do SIF ' + A.sif + '.', '');
+      var ls2 = Array.from(new Set(P.lines.map(function (l) { return l.lote; }))), lsS = []; S.prods.forEach(function (p) { p.lotes.forEach(function (x) { if (lsS.indexOf(x) < 0) lsS.push(x); }); });
+      var f2 = ls2.filter(function (x) { return lsS.indexOf(x) < 0; }), s2 = lsS.filter(function (x) { return ls2.indexOf(x) < 0; });
+      if (f2.length) E('SIGSIF: faltam lotes do PSCF.', f2.join(', ')); if (s2.length) E('SIGSIF: lote que não está no PSCF.', s2.join(', '));
+      var sifsP = Array.from(new Set(P.lines.map(function (l) { return l.sif; })));
+      S.prods.forEach(function (p) { [['abate', p.abate], ['processador', p.proc]].forEach(function (x) { if (x[1] && !/^X+$/.test(x[1]) && sifsP.indexOf(x[1]) < 0) W('SIGSIF, produto ' + p.n + ': SIF de ' + x[0] + ' ' + x[1] + ' não está no PSCF.', 'SIF do PSCF: ' + sifsP.join(', ')); });
+        if (A && A.sif && p.arm && p.arm !== A.sif) E('SIGSIF, produto ' + p.n + ': armazenador ' + p.arm + ', mas a carga sai do SIF ' + A.sif + '.', ''); });
+    }
+    return { cols: cols, rows: R.filter(function (r) { return Object.keys(r.v).some(function (k) { return r.v[k] != null && r.v[k] !== ''; }); }) };
+  }
+  function fmtV(r, v) { if (v == null || v === '') return '—'; if (r.f != null && typeof v === 'number') return fmtN(v, r.f); return String(v); }
+  function blocoExportacao(G, X) {
+    var h = '<details class="blk" open><summary><h3>Documentos da exportação</h3></summary><div class="tw"><table class="grade"><thead><tr><th></th><th>Campo</th>' + G.cols.map(function (c) { return '<th>' + esc(c.t) + '</th>'; }).join('') + '</tr></thead><tbody>' +
+      G.rows.map(function (r) { return '<tr class="' + (r.st === 'err' ? 'bad' : '') + '"><td>' + (r.st ? '<span class="ico ' + r.st + '">' + (r.st === 'ok' ? '✓' : '✕') + '</span>' : '') + '</td><td>' + esc(r.c) + '</td>' +
+        G.cols.map(function (c) { var v = r.v[c.k], nc = r.nc && r.nc.indexOf(c.k) >= 0, bad = r.bad && r.bad.indexOf(c.k) >= 0; return '<td class="' + (nc ? 'nc' : '') + (bad ? ' x' : '') + '"' + (nc ? ' title="Horário do sistema: não entra na comparação"' : '') + '>' + esc(fmtV(r, v)) + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table></div>';
+    if (X.H) h += '<div class="fotos"><div><b>Fotos do HashData</b> <span class="sub">ordem de carga, termógrafo e lacre (' + X.H.fotoPags.length + ' pág.)</span></div><button class="btn ghost" id="lerFotos">Ler as fotos com OCR</button><div id="fotosRes" class="fres">' + (X.fH && X.fH.fotoRes ? X.fH.fotoRes : '') + '</div></div>';
+    return h + '</details>';
+  }
+  // OCR das fotos do HashData: confere se o que foi digitado aparece na foto
+  function ligaFotos(X) {
+    var b = $('lerFotos'); if (!b || !X.fH) return;
+    b.onclick = async function () {
+      var f = X.fH, H = X.H, pf = files.find(function (x) { return x.type === 'pscf' && x.status === 'ok'; }), P = pf ? parsePSCF(pf.pages, pf.ext === 'pdf') : {};
+      b.disabled = true; var res = $('fotosRes');
+      try {
+        var doc = await pdfjsLib.getDocument({ data: new Uint8Array(await f.file.arrayBuffer()), isEvalSupported: false }).promise, txt = '';
+        for (var i = 0; i < H.fotoPags.length; i++) { res.innerHTML = 'Lendo foto ' + (i + 1) + ' de ' + H.fotoPags.length + '…'; var w = await OCR.page(await doc.getPage(H.fotoPags[i])); txt += ' ' + w.map(function (x) { return x.str; }).join(' '); }
+        var T = norm(txt).replace(/[^A-Z0-9]/g, ''), T0 = T.replace(/O/g, '0');
+        var itens = [['O.C.', H.oc || P.oc], ['Ordem de carga', H.ordem || dig(P.ref)], ['Termógrafo', H.termografo || P.termografo], ['Lacre', dig((H.lacre || P.lacre || '').split('/')[0])]].filter(function (x) { return x[1]; });
+        var html = '<ul>' + itens.map(function (x) { var k = norm(x[1]).replace(/[^A-Z0-9]/g, ''), ok = T.indexOf(k) >= 0 || T0.indexOf(k.replace(/O/g, '0')) >= 0; return '<li class="' + (ok ? 'ok' : 'warn') + '">' + (ok ? '✓ ' : '! ') + esc(x[0]) + ' ' + esc(x[1]) + (ok ? ': aparece na foto' : ': não achei na foto (pode ser a qualidade da imagem: confira)') + '</li>'; }).join('') + '</ul>';
+        f.fotoRes = html; res.innerHTML = html;
+      } catch (e) { res.innerHTML = '<span class="ico err">Não consegui ler as fotos: ' + esc(e && e.message || e) + '</span>'; }
+      b.disabled = false;
+    };
+  }
+
   /* ---------- impressão, página e compilado ---------- */
   var CARGA = {};
   function cinco(a) { var o = []; for (var i = 0; i < a.length; i += 5) o.push(esc(a.slice(i, i + 5).join(' '))); return o.join('<br>'); }
@@ -868,7 +1139,7 @@
       try {
         var z = new JSZip(), base = nomeBase(), usados = {};
         z.file(base + '.html', paginaHtml());
-        var pasta = function (f) { return f.type === 'pscf' ? 'PSCF' : f.type === 'anexo4' ? 'Anexo IV' : isResp(f.type) ? 'Respaldos' : f.type === 'ficha' ? 'Ficha do SIF' : 'Outros'; };
+        var PASTA = { pscf: 'PSCF', anexo4: 'Anexo IV', hashdata: 'HashData', dcpoanova: 'Nova DCPOA', sigsifexp: 'SIGSIF da exportacao', nf: 'Nota fiscal', croqui: 'Croqui', ficha: 'Ficha do SIF' }, pasta = function (f) { return PASTA[f.type] || (isResp(f.type) ? 'Respaldos' : 'Outros'); };
         files.forEach(function (f) { if (!f.file) return; var n = pasta(f) + '/' + f.name, k = 1; while (usados[n]) n = pasta(f) + '/' + f.name.replace(/(\.[^.]+)?$/, ' (' + (++k) + ')$1'); usados[n] = 1; z.file(n, f.file); });
         baixar(await z.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } }), base + '.zip');
       } catch (e) { alertaPasta('err', 'Não consegui montar o compilado: ' + (e && e.message || e)); }
@@ -936,5 +1207,5 @@
   lembrada().then(function (h) { if (h) $('pastaOutra').classList.remove('hide'); });
 
   render();
-  window.__hub = { files: function () { return files; }, analyse: analyse, parseRespaldo: parseRespaldo, regra: regra, checaHab: checaHab, regraTxt: regraTxt };
+  window.__hub = { files: function () { return files; }, parseDcpoa: parseDcpoa, parseHash: parseHash, parseSigExp: parseSigExp, parsePSCF: parsePSCF, parseAnexo: parseAnexo, analyse: analyse, parseRespaldo: parseRespaldo, regra: regra, checaHab: checaHab, regraTxt: regraTxt };
 })();
