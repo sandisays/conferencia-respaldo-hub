@@ -319,6 +319,44 @@
     }
     return '';
   }
+  // separa o texto de habilitação por item; devolve { itens: { '1.1': [países] }, todos: [países] }
+  function habilPorItem(txt) {
+    var out = { itens: {}, todos: [] }; txt = String(txt || '');
+    if (!txt || !/\bITE(?:M|NS)\b|\bPRODUTOS?\b/.test(txt)) return out;
+    var NUM = '\\d{1,2}(?:\\.\\d{1,2})?', SEP = '\\s*(?:,|\\bE\\b|\\/|\\bA\\b|-(?=\\s*\\d))\\s*', DEC = '\\d{1,2}\\.\\d{1,2}';
+    var re = new RegExp('\\bITE(?:M|NS)\\b\\s*(?:N[º°O]\\.?)?\\s*(' + NUM + '(?:' + SEP + NUM + ')*)(?![\\d,])|(?<![\\d.,])(' + DEC + '(?:' + SEP + DEC + ')*)(?![\\d,])', 'g');
+    var mk = [], m;
+    while ((m = re.exec(txt))) mk.push({ ini: m.index, fim: m.index + m[0].length, nums: m[1] || m[2] });
+    if (!mk.length) return out;
+    var lab = function (x) { x = x.replace(/\.$/, ''); return x.indexOf('.') >= 0 ? x : '1.' + x; }, todos = new Set();
+    mk.forEach(function (k, i) {
+      var nums = [];
+      k.nums.split(/\s*(?:,|\bE\b|\/)\s*/).forEach(function (t) {
+        t = t.trim(); var r = /^(\d{1,2}(?:\.\d{1,2})?)\s*(?:\bA\b|-)\s*(\d{1,2}(?:\.\d{1,2})?)$/.exec(t);
+        if (r) { var a = +lab(r[1]).split('.')[1], b = +lab(r[2]).split('.')[1]; for (var q = a; q <= b; q++) nums.push('1.' + q); }
+        else if (/^\d/.test(t)) nums.push(lab(t));
+      });
+      var trecho = txt.slice(k.fim, i + 1 < mk.length ? mk[i + 1].ini : txt.length);
+      var ps = paisesDoTexto(trecho);
+      if (ps.length) nums.forEach(function (it) { out.itens[it] = (out.itens[it] || []).concat(ps.filter(function (p) { return (out.itens[it] || []).indexOf(p) < 0; })); });
+      ps.forEach(function (p) { todos.add(p); });
+    });
+    out.todos = Array.from(todos); return out;
+  }
+  // tira os nomes de países de um trecho (com ou sem vírgulas: "FILIPINAS JAPAO", "GEÓRGIA, REPUBLICA DA")
+  var PULA = ['E', 'DA', 'DE', 'DO', 'DAS', 'DOS', 'ILHAS', 'ILHA', 'HABILITACAO', 'HABILITACOES', 'HABILITADO', 'HABILITADOS', 'ITEM', 'ITENS', 'PRODUTO', 'PRODUTOS', 'REPUBLICA', 'POPULAR', 'PARA', 'CONFORME', 'PAISES', 'PAIS', 'APENAS', 'SOMENTE'];
+  function paisesDoTexto(txt) {
+    var w = cl(txt).split(' ').filter(Boolean); if (!w.length) return [];
+    var nomes = nomesPaises().slice().sort(function (a, b) { return b.split(' ').length - a.split(' ').length; }), out = [], resto = [];
+    var solta = function () { var r = resto.filter(function (x) { return PULA.indexOf(x) < 0 && x.length > 2; }).join(' '); if (r) out.push(r); resto = []; };
+    for (var i = 0; i < w.length;) {
+      var achou = null;
+      for (var j = 0; j < nomes.length && !achou; j++) { var nw = nomes[j].split(' '); if (w.slice(i, i + nw.length).join(' ') === nomes[j]) achou = nomes[j]; }
+      if (achou) { solta(); if (out.indexOf(achou) < 0) out.push(achou); i += achou.split(' ').length; }
+      else { resto.push(w[i]); i++; }
+    }
+    solta(); return out;
+  }
   function cleanCountry(v) { return String(v || '').replace(/\s+[A-Z]{2}$/, '').trim(); }
   function parseRespaldo(pages, type) {
     var all = []; pages.forEach(function (pg) { pg.lines.forEach(function (L) { all.push(L.text); }); });
@@ -331,26 +369,17 @@
     var best = Object.keys(freq).sort(function (a, b) { return freq[b] - freq[a]; })[0];
     if (best) { D.numero = first[best]; D.key = best; }
     else if ((m = /(?:DCPOA|DECLARACAO)[^\d]{0,40}(\d{3,8}\s?\/\s?\d{2,4}(?:\s?\/\s?\d{2,4})?)/.exec(Ud))) { D.numero = m[1].replace(/\s/g, ''); D.key = D.numero.replace(/\D/g, ''); }
-    // habilitação por item (Observações do CSN) e do documento
-    var re = /ITE(?:M|NS)\s+((?:\d{1,2}\.\d{1,2}\.?\s*(?:,|\bE\b)?\s*)+)\s*-?\s*HABILITA\w*\s*:?\s*([^;]+?)(?=;|\s+ITE(?:M|NS)\s+\d|\s+VERIFICAR|\s+NOME DO|$)/g;
-    // Observações: habilitação por item ("ITEM 1.1, 1.2 HABILITAÇÃO: ...", "ITEM 1 FILIPINAS; ITEM 3 JAPÃO") ou geral
+    // habilitação por item: nas Observações ou no cabeçalho ("países/blocos econômicos").
+    // Formatos vistos: "ITEM 1.1, 1.2 HABILITAÇÃO: ...", "ITEM 1: JAPÃO; FILIPINAS - ITEM 2, 3 E 4: JAPÃO",
+    // "PRODUTO 1.1: ... 1.2: ...", "PRODUTO: 1.1 ... / 1.2 ...", "PRODUTOS : 1.1 FILIPINAS JAPAO 1.2 ..."
     var obs = (/OBSERVACOES\s*:?\s*(.*?)(?=\s+VERIFICAR EM|\s+CODIGO DE AUTENTICIDADE|\s+NOME DO MEDICO|$)/.exec(flat) || [])[1] || '';
-    obs = obs.trim(); D.obs = obs;
-    if (obs && !/^X+\.?$/.test(obs)) {
-      var partes = obs.split(/\bITE(?:M|NS)\b/);
-      partes.slice(1).forEach(function (pt) {
-        var mm = /^[\s:.\-nº°]*((?:\d{1,2}(?:\.\d{1,2})?\.?\s*(?:,|\bE\b|\bA\b|\/|-)?\s*)+)(.*)$/.exec(pt); if (!mm) return;
-        var nums = [], toks = mm[1].replace(/\.\s*$/, '').split(/\s*(?:,|\bE\b|\/)\s*/);
-        toks.forEach(function (t) { var r = /^(\d{1,2}(?:\.\d{1,2})?)\s*(?:\bA\b|-)\s*(\d{1,2}(?:\.\d{1,2})?)$/.exec(t.trim());
-          var lab = function (x) { x = x.replace(/\.$/, ''); return x.indexOf('.') >= 0 ? x : '1.' + x; };
-          if (r) { var a = +lab(r[1]).split('.')[1], b = +lab(r[2]).split('.')[1]; for (var q = a; q <= b; q++) nums.push('1.' + q); }
-          else if (/^\d/.test(t.trim())) nums.push(lab(t.trim())); });
-        var txt = mm[2].replace(/^\s*-?\s*HABILITA\w*\s*:?\s*/, '').replace(/[;.\s]+$/, '').trim();
-        if (txt) nums.forEach(function (it) { D.habilItens[it] = [txt]; });
-      });
-      if (partes.length === 1 && /HABILITA/.test(obs)) D.habilObs = [obs.replace(/^.*?HABILITA\w*\s*:?\s*/, '').replace(/[;.\s]+$/, '')];
-    }
-    if ((m = /ECONOMICO\(S\)\s*:\s*(.+?)\s+1\.\s*IDENTIFICA/.exec(flat))) D.habilDoc = countries(m[1]);
+    obs = obs.trim(); D.obs = obs; if (/^X+\.?$/.test(obs)) obs = '';
+    var cab = ((m = /ECONOMICO\(S\)\s*:\s*(.+?)\s+1\.\s*IDENTIFICA/.exec(flat)) ? m[1] : '').trim();
+    var pObs = habilPorItem(obs), pCab = habilPorItem(cab);
+    D.habilItens = Object.keys(pObs.itens).length ? pObs.itens : pCab.itens;
+    D.habilFonte = Object.keys(pObs.itens).length ? 'Observações' : Object.keys(pCab.itens).length ? 'cabeçalho' : '';
+    if (!Object.keys(pObs.itens).length && obs && /HABILITA/.test(obs)) D.habilObs = paisesDoTexto(obs.replace(/^.*?HABILITA\w*\s*:?\s*/, ''));
+    D.habilDoc = cab ? (Object.keys(pCab.itens).length ? pCab.todos : paisesDoTexto(cab)) : [];
     D.destField = cleanCountry(findDestField(pages));
     if ((m = /DESTINATARIO.{0,140}?SIF\s*(\d{2,5})/.exec(flat))) D.destSif = m[1];
     // tabela de produtos
@@ -414,7 +443,7 @@
   }
   function pg0Words(pages) { return pages.some(function (p) { return p.words && p.words.length; }); }
   function habilOf(doc, row) {
-    if (row && row.habil && row.habil.length) return { list: row.habil, src: 'Observações, ' + row.label };
+    if (row && row.habil && row.habil.length) return { list: row.habil, src: (doc.parsed.habilFonte || 'Observações') + ', ' + row.label };
     if (doc.parsed.habilObs) return { list: doc.parsed.habilObs, src: 'Observações' };
     if (doc.type === 'csi' && doc.parsed.destField) return { list: countries(doc.parsed.destField), src: 'país de destino do CSI' };
     if (doc.parsed.habilDoc.length) return { list: doc.parsed.habilDoc, src: 'países do cabeçalho' };
@@ -680,7 +709,7 @@
           if (l.sif && row.sifs.indexOf(l.sif) < 0 && norm(D.text).indexOf('SIF ' + l.sif) < 0 && norm(D.text).indexOf('SIF' + l.sif) < 0) warns.push('SIF ' + l.sif + ' não encontrado no item');
           var pk = row.label; perRow[pk] = perRow[pk] || { row: row, vol: 0, pl: 0 }; perRow[pk].vol += l.vol || 0; perRow[pk].pl += l.pl || 0;
         }
-        if (row && row.habilFalta) probs.push('o item ' + row.label + ' não aparece na habilitação das Observações (itens citados: ' + row.habilFalta + ')');
+        if (row && row.habilFalta) probs.push('o item ' + row.label + ' não aparece na habilitação por item do documento (' + (D.habilFonte || 'Observações') + '; itens citados: ' + row.habilFalta + ')');
         else if (destino) { var ch = checaHab(rgOf(l), h.list, doc.type, doc); ch.probs.forEach(function (x) { probs.push(x); }); ch.warns.forEach(function (x) { if (warns.indexOf(x) < 0) warns.push(x); }); }
         if (l.marca && norm(D.text).indexOf(norm(l.marca)) < 0 && doc.type === 'csn') probs.push('marca ' + l.marca + ' não aparece no ' + tipo);
         probs.forEach(function (x) { addG('err', x, l.lote); }); warns.forEach(function (x) { addG('warn', x, l.lote); });
