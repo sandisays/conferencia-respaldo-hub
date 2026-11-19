@@ -163,3 +163,4 @@
   .logo.navy { background:linear-gradient(135deg,#2d4f73,#172b42); box-shadow:0 8px 20px -8px rgba(23,43,66,.6); }
   :root[data-theme="dark"] .logo.navy { box-shadow:0 8px 20px -8px rgba(0,0,0,.7), inset 0 0 0 1px rgba(255,255,255,.08); }
   @media (prefers-color-scheme:dark) { :root:not([data-theme="light"]) .logo.navy { box-shadow:0 8px 20px -8px rgba(0,0,0,.7), inset 0 0 0 1px rgba(255,255,255,.08); } }
+  .logo.soft { background:var(--accbg); box-shadow:none; border:1px solid var(--line); }
