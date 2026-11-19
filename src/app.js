@@ -245,6 +245,7 @@
       if (sec === 'res' && (m = RES.exec(t))) { R.resumo.push({ prod: prod, sif: sif, dtProd: dmy(m[1]), lote: m[4], vol: parseNum(m[5], pdf), pl: parseNum(m[6], pdf) }); return; }
       if (sec === 'hab' && (m = /^(\d{2,5})\s+(\d+)\s+([A-Z0-9][A-Z0-9.\/-]*\d[A-Z0-9.\/-]*)\s+(.+)$/.exec(U))) { R.habil[certKey(m[3])] = { sif: m[1], nf: m[2], cert: m[3], list: countries(m[4]), raw: m[4] }; }
     }); });
+    cargaInfo(R, pages);
     if (R.lines.length) R.resumo = []; // o detalhe manda; o resumo do relatório só é usado se não houver detalhe
     if (!R.resumo.length) { // monta o resumo a partir das linhas
       var agg = {}; R.lines.forEach(function (l) { var k = l.sif + '|' + l.lote; agg[k] = agg[k] || { prod: l.prod, sif: l.sif, dtProd: l.dtProd, lote: l.lote, vol: 0, pl: 0 }; agg[k].vol += l.vol || 0; agg[k].pl += l.pl || 0; });
@@ -293,7 +294,16 @@
         cur.lots.push({ sif: prodSif || cur.sif, lote: m[2], dtProd: dmy(m[3]), dtVal: dmy(m[4]), vol: parseNum(m[6], true), pb: parseNum(m[7], true), pl: parseNum(m[8], true) });
       }
     }); });
+    cargaInfo(A, pages);
     return A;
+  }
+  // container e data de carregamento: procura o rótulo e o valor perto dele (linha ou célula seguinte)
+  function cargaInfo(R, pages) {
+    var flat = norm(pages.map(function (p) { return p.lines.map(function (l) { return l.text; }).join(' \n '); }).join(' \n ')).replace(/[ \t]+/g, ' '), m;
+    if ((m = /CONT(?:A|E)INER\W{0,12}?([A-Z]{4}\s?-?\s?\d{6}\s?-?\s?\d)\b/.exec(flat))) R.container = m[1].replace(/[\s-]/g, '');
+    else if ((m = /CONT(?:A|E)INER\s*(?:N[º°O]\.?)?\s*:\s*([A-Z0-9][A-Z0-9-]{5,14})\b/.exec(flat)) && /\d/.test(m[1])) R.container = m[1];
+    if ((m = /CARREGAMENTO\W{0,25}?(\d{2}\/\d{2}\/\d{2,4})/.exec(flat))) R.dtCarreg = m[1];
+    else if ((m = /(?:DATA|DT\.?)\s*(?:DE|DO)?\s*(?:EMBARQUE|ESTUFAGEM)\W{0,25}?(\d{2}\/\d{2}\/\d{2,4})/.exec(flat))) R.dtCarreg = m[1];
   }
 
   /* ---------- documentos de respaldo ---------- */
@@ -601,14 +611,16 @@
       var ocr = f.pages && f.pages.some(function (p) { return p.ocr; }) ? ' <span class="tag warn">OCR</span>' : '';
       var sel = '<select data-id="' + f.id + '" class="ty">' + Object.keys(TYPES).map(function (k) { return '<option value="' + k + '"' + (f.type === k ? ' selected' : '') + '>' + TYPES[k] + '</option>'; }).join('') + '</select>';
       var num = isResp(f.type) ? ' Nº <input data-id="' + f.id + '" class="nu" value="' + esc(f.numero || '') + '" placeholder="não lido">' : '';
-      li.innerHTML = '<div class="name">' + esc(f.name) + '</div><button class="xrm" title="Remover" data-id="' + f.id + '">×</button>' +
+      li.innerHTML = '<div class="name">' + esc(f.name) + '</div><div class="fbtn"><button class="xdl" title="Baixar este arquivo" data-id="' + f.id + '"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg></button><button class="xrm" title="Remover" data-id="' + f.id + '">×</button></div>' +
         '<div class="meta">' + st + ocr + (f.status === 'ok' ? sel + num + (f.pages ? '<span>' + f.pages.length + ' pág.</span>' : '') : '') + '</div>' +
         (f.status === 'lendo' ? '<div class="bar"><i style="width:' + Math.round((f.prog || 0) * 100) + '%"></i></div>' : '');
       ul.appendChild(li);
     });
     $('run').disabled = !files.length || files.some(function (f) { return f.status === 'lendo'; });
   }
-  $('flist').addEventListener('click', function (e) { var id = e.target.getAttribute('data-id'); if (e.target.classList.contains('xrm')) { files = files.filter(function (f) { return String(f.id) !== id; }); render(); } });
+  $('flist').addEventListener('click', function (e) { var b = e.target.closest('button'); if (!b) return; var id = b.getAttribute('data-id');
+    if (b.classList.contains('xrm')) { files = files.filter(function (f) { return String(f.id) !== id; }); render(); }
+    if (b.classList.contains('xdl')) { var f = files.find(function (x) { return String(x.id) === id; }); if (f) baixar(f.file, f.name); } });
   $('flist').addEventListener('change', function (e) {
     var id = e.target.getAttribute('data-id'), f = files.find(function (x) { return String(x.id) === id; }); if (!f) return;
     if (e.target.classList.contains('ty')) { f.type = e.target.value; prepare(f); render(); }
@@ -773,7 +785,12 @@
     var h = '<div class="sum"><div class="kpi ' + (nE ? 'err' : 'ok') + '"><b>' + nE + '</b><span>divergência' + (nE === 1 ? '' : 's') + '</span></div>' +
       '<div class="kpi warn"><b>' + nW + '</b><span>aviso' + (nW === 1 ? '' : 's') + ' para olhar</span></div>' +
       '<div class="kpi ok"><b>' + nOk + '/' + lotRows.length + '</b><span>lotes do PSCF conferidos sem problema</span></div></div>';
-    h += '<div class="panel"><div class="ctx"><span>Destino: <b>' + esc(P.destino || (A && A.destino) || '—') + '</b></span><span>Referência: <b>' + esc(P.ref || '—') + '</b></span><span>O.C.: <b>' + esc(P.oc || '—') + '</b></span>' +
+    var sifs = Array.from(new Set(P.lines.map(function (l) { return l.sif; }).concat(A ? A.prods.map(function (p) { return p.sif; }) : []).filter(Boolean))).sort(function (a, b) { return a - b; });
+    var cont = P.container || (A && A.container) || '', dtc = P.dtCarreg || (A && A.dtCarreg) || '';
+    var dq = function (t, v) { return '<div><span>' + t + '</span>' + (v ? '<b>' + esc(v) + '</b>' : '<b class="vazio">não encontrado</b>') + '</div>'; };
+    CARGA = { oc: P.oc, ref: P.ref, destino: P.destino || (A && A.destino) || '', container: cont, dtCarreg: dtc };
+    h += '<div class="panel"><div class="phead"></div><div class="dq">' + dq('O.C.', P.oc) + dq('Container', cont) + dq('Data de carregamento', dtc) + dq('SIF da carga', sifs.join(' · ')) + '</div>' +
+      '<div class="ctx"><span>Destino: <b>' + esc(P.destino || (A && A.destino) || '—') + '</b></span><span>Referência: <b>' + esc(P.ref || '—') + '</b></span>' +
       (A ? '<span>Anexo IV: <b>' + esc(A.numero || '—') + '</b></span><span>Sai do SIF: <b>' + esc(A.sif || '—') + '</b></span>' : '') + '</div>';
     var SPN = { AVES: 'aves', BOVIN: 'bovinos', SUIN: 'suínos', PESCADO: 'pescado', OVO: 'ovos', LACTEO: 'lácteos', MEL: 'mel' }, vistos = {};
     Object.keys(RG || {}).forEach(function (d) { var R = RG[d], sp = (R.sp || []).map(function (x) { return SPN[x]; }).join(', '), t = regraTxt(R), kk = (R.pais || R.destino) + sp + t + R.epoa + R.epoaOk; if (vistos[kk]) return; vistos[kk] = 1;
@@ -783,7 +800,11 @@
     if (!issues.length) h += '<div class="allok">Tudo confere entre PSCF, Anexo IV e os documentos de respaldo.</div>';
     if (errs.length) h += '<h2>Divergências</h2><ul class="issues">' + errs.map(li).join('') + '</ul>';
     if (wrs.length) h += '<h2 style="margin-top:16px">Avisos</h2><ul class="issues">' + wrs.map(li).join('') + '</ul>';
-    h += '<div class="row" style="margin-top:12px"><span></span><div><button class="btn ghost" id="prt">Imprimir / salvar PDF</button></div></div></div>';
+    var nomeSalvo = ''; try { nomeSalvo = localStorage.getItem('hub-nome') || ''; } catch (e) {}
+    h += '<div class="tools"><label class="nome">Conferido por <input id="nome" placeholder="seu nome" value="' + esc(nomeSalvo) + '" autocomplete="name"></label>' +
+      '<button class="btn ghost" id="expAll">Expandir tudo</button><button class="btn ghost" id="colAll">Recolher tudo</button>' +
+      '<button class="btn ghost" id="prt">Imprimir / salvar PDF</button><button class="btn ghost" id="dlPage">Baixar página</button><button class="btn" id="dlZip">Baixar compilado (.zip)</button>' +
+      '<div class="aviso hide" id="nomeAviso">Preencha o seu nome: ele vai na marca d\'água.</div></div></div>';
     function li(i) { return '<li class="' + i.k + '"><span class="w">' + (i.k === 'err' ? '✕' : '!') + '</span>' + esc(i.t) + (i.d ? '<small>' + esc(i.d) + '</small>' : '') + '</li>'; }
     function ic(st) { return '<span class="ico ' + st + '">' + (st === 'ok' ? '✓' : st === 'err' ? '✕' : '!') + '</span>'; }
 
@@ -795,17 +816,125 @@
       axRows.map(function (r) { return '<tr class="' + (r.st === 'err' ? 'bad' : '') + '"><td>' + ic(r.st) + '</td><td>' + esc(r.sif) + '</td><td class="mono">' + esc(r.lote) + '</td><td class="n">' + (r.p ? fmtN(r.p.vol) : '—') + '</td><td class="n">' + (r.a ? fmtN(r.a.vol) : '—') + '</td><td class="n">' + (r.p ? fmtN(r.p.pl, 3) : '—') + '</td><td class="n">' + (r.a ? fmtN(r.a.pl, 3) : '—') + '</td><td>' + esc(r.msg) + '</td></tr>'; }).join('') +
       '</tbody></table></div>' + (A.prods.length ? '<p class="sub" style="margin-top:8px">Certificados declarados no Anexo IV: ' + A.prods.map(function (p) { return 'produto ' + p.n + ' (SIF ' + esc(p.sif) + '): ' + p.certs.map(function (c) { return esc(c.num) + ' [' + c.col + ']'; }).join(', '); }).join(' · ') + '</p>' : '') + '</details>';
 
+    if (resp.length) h += '<details class="blk grp"><summary><h3>Documentos de respaldo (' + resp.length + ')</h3></summary><div class="inner">';
     resp.forEach(function (f) {
       var D = f.parsed;
       h += '<details class="blk"><summary><h3>' + esc(TYPES[f.type]) + ' ' + esc(f.numero || '(nº não lido)') + (f.pages.some(function (p) { return p.ocr; }) ? ' <span class="tag warn">OCR</span>' : '') + '</h3></summary>' +
         '<p class="sub">' + esc(f.name) + (D.destSif ? ' · destinatário SIF ' + esc(D.destSif) : '') + (D.destField ? ' · país de destino: ' + esc(D.destField) : '') + (D.habilDoc.length ? ' · países: ' + esc(D.habilDoc.join(', ')) : '') + '</p>' +
         '<div class="tw"><table><thead><tr><th>Item</th><th>Produto</th><th>Rótulo</th><th>Lotes lidos</th><th class="n">Vol.</th><th class="n">Peso líq.</th><th>Habilitação</th></tr></thead><tbody>' +
-        (D.rows.length ? D.rows.map(function (r) { var hb = habilOf(f, r); return '<tr><td>' + esc(r.label) + '</td><td>' + esc(r.name) + '</td><td class="mono">' + esc(r.rotulo || '—') + '</td><td class="mono">' + esc(Array.from(r.lots).join(' ')) + '</td><td class="n">' + fmtN(r.vol) + '</td><td class="n">' + fmtN(r.peso, 2) + '</td><td>' + esc(hb.list.join(', ') || '—') + '</td></tr>'; }).join('') : '<tr><td colspan="7">Não encontrei a tabela de produtos. Lotes no documento: ' + esc(Array.from(D.allLots).join(' ') || 'nenhum') + '</td></tr>') +
+        (D.rows.length ? D.rows.map(function (r) { var hb = habilOf(f, r); return '<tr><td>' + esc(r.label) + '</td><td>' + esc(r.name) + '</td><td class="mono">' + esc(r.rotulo || '—') + '</td><td class="lotes">' + cinco(Array.from(r.lots)) + '</td><td class="n">' + fmtN(r.vol) + '</td><td class="n">' + fmtN(r.peso, 2) + '</td><td>' + esc(hb.list.join(', ') || '—') + '</td></tr>'; }).join('') : '<tr><td colspan="7">Não encontrei a tabela de produtos. Lotes no documento: ' + esc(Array.from(D.allLots).join(' ') || 'nenhum') + '</td></tr>') +
         '</tbody></table></div><details style="margin-top:10px;box-shadow:none;padding:0"><summary class="sub">Ver texto lido</summary><pre class="raw">' + esc(D.text) + '</pre></details></details>';
     });
-    $('out').innerHTML = h; var pb = $('prt'); if (pb) pb.onclick = function () { window.print(); };
+    if (resp.length) h += '</div></details>';
+    h += '<div class="wm" aria-hidden="true"><div></div></div>';
+    $('out').innerHTML = h; ligaFerramentas();
     $('out').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
+  /* ---------- impressão, página e compilado ---------- */
+  var CARGA = {};
+  function cinco(a) { var o = []; for (var i = 0; i < a.length; i += 5) o.push(esc(a.slice(i, i + 5).join(' '))); return o.join('<br>'); }
+  function baixar(blob, nome) { var u = URL.createObjectURL(blob), a = document.createElement('a'); a.href = u; a.download = nome; document.body.appendChild(a); a.click(); a.remove(); setTimeout(function () { URL.revokeObjectURL(u); }, 4000); }
+  function hoje(comHora) { var d = new Date(), z = function (n) { return String(n).padStart(2, '0'); }; return z(d.getDate()) + '/' + z(d.getMonth() + 1) + '/' + d.getFullYear() + (comHora ? ' ' + z(d.getHours()) + ':' + z(d.getMinutes()) : ''); }
+  function seguro(s) { return String(s || '').replace(/[\\\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ').trim(); }
+  function nomeOk() {
+    var i = $('nome'), v = i ? i.value.trim() : ''; if (i) i.classList.toggle('falta', !v); var av = $('nomeAviso'); if (av) av.classList.toggle('hide', !!v);
+    if (!v) { if (i) i.focus(); return ''; }
+    try { localStorage.setItem('hub-nome', v); } catch (e) {} marca(v); return v;
+  }
+  function marca(nome) {
+    var t = 'USO INTERNO SEARA · ' + hoje() + ' · ' + nome, w = document.querySelector('#out .wm > div');
+    if (w) { var sp = ''; for (var i = 0; i < 60; i++) sp += '<span>' + esc(t) + '</span>'; w.innerHTML = sp; }
+    var ph = document.querySelector('#out .phead'); if (ph) ph.innerHTML = 'Conferido por <b>' + esc(nome) + '</b> em ' + esc(hoje(true)) + ' · USO INTERNO SEARA';
+  }
+  function nomeBase() { var c = CARGA, p = ['Conferencia respaldo HUB']; if (c.oc) p.push('OC ' + c.oc); else if (c.ref) p.push(c.ref); if (c.container) p.push(c.container); p.push(hoje().replace(/\//g, '-')); return seguro(p.join(' - ')); }
+  function paginaHtml() {
+    var css = Array.prototype.map.call(document.querySelectorAll('style'), function (x) { return x.textContent; }).join('\n');
+    var out = $('out').cloneNode(true); out.removeAttribute('id');
+    Array.prototype.forEach.call(out.querySelectorAll('.tools'), function (x) { x.remove(); });
+    var head = document.querySelector('header').cloneNode(true); Array.prototype.forEach.call(head.querySelectorAll('button'), function (x) { x.remove(); });
+    return '<!DOCTYPE html><html lang="pt-BR" data-theme="light"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
+      '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'; font-src data:; img-src data:">' +
+      '<title>' + esc(nomeBase()) + '</title><style>' + css + '</style></head><body class="snap"><main>' + head.outerHTML + out.innerHTML +
+      '<footer>' + esc(document.querySelector('footer').textContent) + '</footer></main></body></html>';
+  }
+  function ligaFerramentas() {
+    var abre = function (v) { Array.prototype.forEach.call(document.querySelectorAll('#out details.blk'), function (d) { d.open = v; }); };
+    $('expAll').onclick = function () { abre(true); }; $('colAll').onclick = function () { abre(false); };
+    $('nome').oninput = function () { if (this.value.trim()) { this.classList.remove('falta'); $('nomeAviso').classList.add('hide'); } };
+    $('prt').onclick = function () { if (nomeOk()) window.print(); };
+    $('dlPage').onclick = function () { if (nomeOk()) baixar(new Blob([paginaHtml()], { type: 'text/html' }), nomeBase() + '.html'); };
+    $('dlZip').onclick = async function () {
+      if (!nomeOk()) return; var b = this, t = b.textContent; b.disabled = true; b.textContent = 'Montando…';
+      try {
+        var z = new JSZip(), base = nomeBase(), usados = {};
+        z.file(base + '.html', paginaHtml());
+        var pasta = function (f) { return f.type === 'pscf' ? 'PSCF' : f.type === 'anexo4' ? 'Anexo IV' : isResp(f.type) ? 'Respaldos' : f.type === 'ficha' ? 'Ficha do SIF' : 'Outros'; };
+        files.forEach(function (f) { if (!f.file) return; var n = pasta(f) + '/' + f.name, k = 1; while (usados[n]) n = pasta(f) + '/' + f.name.replace(/(\.[^.]+)?$/, ' (' + (++k) + ')$1'); usados[n] = 1; z.file(n, f.file); });
+        baixar(await z.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } }), base + '.zip');
+      } catch (e) { alertaPasta('err', 'Não consegui montar o compilado: ' + (e && e.message || e)); }
+      b.disabled = false; b.textContent = t;
+    };
+  }
+  window.addEventListener('beforeprint', function () { var i = $('nome'); if (i && i.value.trim()) marca(i.value.trim()); });
+
+  /* ---------- buscar os respaldos numa pasta ---------- */
+  function alertaPasta(k, t, d) { var m = $('pastaMsg'); m.className = 'pmsg ' + (k || ''); m.innerHTML = esc(t) + (d ? '<small>' + esc(d) + '</small>' : ''); }
+  // certificados que a carga usa: PSCF + Anexo IV
+  function necessarios() {
+    var req = {}, pf = files.find(function (f) { return f.type === 'pscf' && f.status === 'ok'; }), af = files.find(function (f) { return f.type === 'anexo4' && f.status === 'ok'; });
+    if (pf) parsePSCF(pf.pages, pf.ext === 'pdf').lines.forEach(function (l) { if (l.key && l.cert) req[l.key] = l.cert; });
+    if (af) parseAnexo(af.pages).prods.forEach(function (p) { p.certs.forEach(function (c) { req[c.key] = req[c.key] || c.num; }); });
+    return { req: req, tem: !!(pf || af) };
+  }
+  function casaNome(nome, keys) {
+    var d = String(nome).replace(/\D+/g, ' '), cola = String(nome).replace(/\D/g, '');
+    return keys.filter(function (k) { return k.length >= 8 ? (' ' + d + ' ').indexOf(' ' + k + ' ') >= 0 || cola.indexOf(k) >= 0 : (' ' + d + ' ').indexOf(' ' + k + ' ') >= 0; });
+  }
+  function faltam() {
+    var N = necessarios(); if (!N.tem) { alertaPasta('err', 'Carregue primeiro o PSCF ou o Anexo IV.', 'É deles que sai a lista de respaldos da carga.'); return null; }
+    if (files.some(function (f) { return f.status === 'lendo'; })) { alertaPasta('', 'Espere terminar a leitura dos arquivos e clique de novo.'); return null; }
+    var ja = new Set(files.filter(function (f) { return isResp(f.type); }).map(function (f) { return f.key; }));
+    var keys = Object.keys(N.req).filter(function (k) { return !ja.has(k); });
+    if (!Object.keys(N.req).length) { alertaPasta('err', 'Não achei números de respaldo no PSCF nem no Anexo IV.'); return null; }
+    if (!keys.length) { alertaPasta('ok', 'Todos os ' + Object.keys(N.req).length + ' respaldos da carga já estão carregados.'); return null; }
+    return { req: N.req, keys: keys };
+  }
+  function escolhe(cands, F) { // um arquivo por certificado: PDF primeiro, depois o mais recente
+    var por = {}; cands.forEach(function (c) { c.ks.forEach(function (k) { var o = por[k]; if (!o || (/\.pdf$/i.test(c.f.name) && !/\.pdf$/i.test(o.f.name)) || ((/\.pdf$/i.test(c.f.name) === /\.pdf$/i.test(o.f.name)) && c.f.lastModified > o.f.lastModified)) por[k] = c; }); });
+    var ach = [], vis = new Set(); Object.keys(por).forEach(function (k) { if (!vis.has(por[k].f)) { vis.add(por[k].f); ach.push(por[k].f); } });
+    var nf = F.keys.filter(function (k) { return !por[k]; }).map(function (k) { return F.req[k]; });
+    if (ach.length) addFiles(ach);
+    if (!ach.length) alertaPasta('err', 'Não achei nenhum dos ' + F.keys.length + ' respaldos nesta pasta.', 'Procurei pelo número no nome do arquivo: ' + F.keys.map(function (k) { return F.req[k]; }).join(', '));
+    else alertaPasta(nf.length ? '' : 'ok', 'Achei ' + Object.keys(por).length + ' de ' + F.keys.length + ' respaldos e coloquei na lista.', nf.length ? 'Não achei: ' + nf.join(', ') : '');
+  }
+  var ACEITA = /\.(pdf|xlsx|xlsm)$/i;
+  async function varre(dir, keys, out, prof, cont) {
+    for await (var ent of dir.values()) {
+      if (cont.n++ > 40000) return;
+      if (ent.kind === 'file') { if (ACEITA.test(ent.name)) { var ks = casaNome(ent.name, keys); if (ks.length) out.push({ f: await ent.getFile(), ks: ks }); } }
+      else if (prof < 4 && !/^[.$~]/.test(ent.name)) await varre(ent, keys, out, prof + 1, cont);
+    }
+  }
+  var DB = function () { return new Promise(function (ok, no) { var r = indexedDB.open('hub-respaldo', 1); r.onupgradeneeded = function () { r.result.createObjectStore('kv'); }; r.onsuccess = function () { ok(r.result); }; r.onerror = function () { no(r.error); }; }); };
+  async function guarda(h) { try { var db = await DB(); db.transaction('kv', 'readwrite').objectStore('kv').put(h, 'pasta'); } catch (e) {} }
+  async function lembrada() { try { var db = await DB(); return await new Promise(function (ok) { var r = db.transaction('kv').objectStore('kv').get('pasta'); r.onsuccess = function () { ok(r.result || null); }; r.onerror = function () { ok(null); }; }); } catch (e) { return null; } }
+  async function buscaPasta(outra) {
+    var F = faltam(); if (!F) return;
+    if (!window.showDirectoryPicker) { $('pastaIn').click(); return; }
+    var dir = null;
+    if (!outra) { var h = await lembrada(); if (h) { try { if ((await h.queryPermission({ mode: 'read' })) === 'granted' || (await h.requestPermission({ mode: 'read' })) === 'granted') dir = h; } catch (e) {} } }
+    if (!dir) { try { dir = await window.showDirectoryPicker({ id: 'hub-respaldos', mode: 'read' }); } catch (e) { if (e && e.name === 'AbortError') return; $('pastaIn').click(); return; } guarda(dir); }
+    $('pastaOutra').classList.remove('hide');
+    alertaPasta('', 'Procurando ' + F.keys.length + ' respaldo(s) na pasta ' + dir.name + '…', 'Em pasta de rede pode levar alguns segundos.');
+    var out = []; try { await varre(dir, F.keys, out, 0, { n: 0 }); } catch (e) { alertaPasta('err', 'Não consegui ler a pasta ' + dir.name + '.', String(e && e.message || e)); return; }
+    escolhe(out, F);
+  }
+  $('pasta').onclick = function () { buscaPasta(false); };
+  $('pastaOutra').onclick = function () { buscaPasta(true); };
+  $('pastaIn').onchange = function () { var F = faltam(); if (!F) { this.value = ''; return; } var out = [];
+    Array.prototype.forEach.call(this.files, function (f) { if (ACEITA.test(f.name)) { var ks = casaNome(f.name, F.keys); if (ks.length) out.push({ f: f, ks: ks }); } }); this.value = ''; escolhe(out, F); };
+  lembrada().then(function (h) { if (h) $('pastaOutra').classList.remove('hide'); });
+
   render();
   window.__hub = { files: function () { return files; }, analyse: analyse, parseRespaldo: parseRespaldo, regra: regra, checaHab: checaHab, regraTxt: regraTxt };
 })();
