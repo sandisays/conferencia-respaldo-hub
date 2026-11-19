@@ -949,6 +949,7 @@
     var errs = issues.filter(function (i) { return i.k === 'err'; }), wrs = issues.filter(function (i) { return i.k === 'warn'; });
     if (!issues.length) h += '<div class="allok">Tudo confere entre PSCF, Anexo IV e os documentos de respaldo.</div>';
     if (errs.length) h += '<h2>Divergências</h2><ul class="issues">' + errs.map(li).join('') + '</ul>';
+    if (issues.some(function (i) { return /não foi carregado\.$/.test(i.t); })) h += '<div class="row noprint" style="margin-top:10px"><span class="sub">Faltam respaldos? A ferramenta procura pelo número no nome do arquivo e confere de novo.</span><div><button class="btn ghost" id="pasta2">Buscar os que faltam na pasta</button></div></div>';
     if (wrs.length) h += '<h2 style="margin-top:16px">Avisos</h2><ul class="issues">' + wrs.map(li).join('') + '</ul>';
     var nomeSalvo = ''; try { nomeSalvo = localStorage.getItem('hub-nome') || ''; } catch (e) {}
     h += '<div class="tools"><label class="nome">Conferido por <input id="nome" placeholder="seu nome" value="' + esc(nomeSalvo) + '" autocomplete="name"></label>' +
@@ -978,7 +979,7 @@
     });
     if (resp.length) h += '</div></details>';
     h += '<div class="wm" aria-hidden="true"><div></div></div>';
-    $('out').innerHTML = h; ligaFerramentas(); ligaFotos(EXP);
+    $('out').innerHTML = h; ligaFerramentas(); ligaFotos(EXP); var p2 = $('pasta2'); if (p2) p2.onclick = function () { buscaPasta(false); $('entrada').scrollIntoView({ behavior: 'smooth' }); };
     $('out').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
@@ -1157,9 +1158,33 @@
     if (af) parseAnexo(af.pages).prods.forEach(function (p) { p.certs.forEach(function (c) { req[c.key] = req[c.key] || c.num; }); });
     return { req: req, tem: !!(pf || af) };
   }
-  function casaNome(nome, keys) {
-    var d = String(nome).replace(/\D+/g, ' '), cola = String(nome).replace(/\D/g, '');
-    return keys.filter(function (k) { return k.length >= 8 ? (' ' + d + ' ').indexOf(' ' + k + ' ') >= 0 || cola.indexOf(k) >= 0 : (' ' + d + ' ').indexOf(' ' + k + ' ') >= 0; });
+  // nome do arquivo × número do certificado. No Windows a "/" vira "-" ("N0-00598842-3837-26", "003364-3837-26")
+  // ou fica só o primeiro número ("003364"). forte = número + SIF; fraco = só o primeiro número (confere o conteúdo antes)
+  function partesNum(num) { var u = norm(num).replace(/^[A-Z0-9]{2}-(?=\d{8})/, ''), p = u.split(/\s*\/\s*/).map(function (x) { return x.replace(/\D/g, ''); }); return { main: p[0] || '', sif: p[1] || '', ano: p[2] || '' }; }
+  function casaNome(nome, keys, req) {
+    var base = String(nome).replace(/\.[^.]+$/, ''), tk = base.replace(/\D+/g, ' ').trim().split(' ').filter(Boolean), out = [];
+    keys.forEach(function (k) {
+      var P = partesNum(req[k] || k); if (!P.main) return;
+      var i = tk.indexOf(P.main), forte = false, ok = false;
+      if (i < 0 && P.main.length === 8) { if (base.replace(/\D/g, '').indexOf(P.main) >= 0) { ok = forte = true; } }
+      if (i >= 0) { var nx = tk[i + 1];
+        if (P.main.length === 8) ok = forte = true; // número do CSN/CSI é único
+        else if (nx === P.sif) ok = forte = true; // 003364-3837-26
+        else if (!nx || nx.length < 2 || nx.length > 5 || /\(\d+\)/.test(base)) ok = true; // 003364, "003364 (1)": confere o conteúdo
+      }
+      if (ok) out.push({ k: k, forte: forte });
+    });
+    return out;
+  }
+  // confere se o número está dentro do arquivo (para os nomes que só trazem o primeiro número)
+  async function temNumero(file, num) {
+    if (!/\.pdf$/i.test(file.name)) return false;
+    try { var P = partesNum(num), doc = await pdfjsLib.getDocument({ data: new Uint8Array(await file.arrayBuffer()), isEvalSupported: false }).promise, t = '';
+      for (var p = 1; p <= Math.min(2, doc.numPages); p++) { var tc = await (await doc.getPage(p)).getTextContent(); t += ' ' + tc.items.map(function (i) { return i.str; }).join(' '); }
+      if (t.replace(/\s/g, '').length < 40) return true; // escaneado: aceita e o número é conferido depois de ler
+      var d = digitize(norm(t)).replace(/\s+/g, '');
+      return new RegExp(P.main + '\\/' + P.sif + '\\/').test(d) || (P.main.length === 8 && d.indexOf(P.main) >= 0);
+    } catch (e) { return false; }
   }
   function faltam() {
     var N = necessarios(); if (!N.tem) { alertaPasta('err', 'Carregue primeiro o PSCF ou o Anexo IV.', 'É deles que sai a lista de respaldos da carga.'); return null; }
@@ -1170,19 +1195,28 @@
     if (!keys.length) { alertaPasta('ok', 'Todos os ' + Object.keys(N.req).length + ' respaldos da carga já estão carregados.'); return null; }
     return { req: N.req, keys: keys };
   }
-  function escolhe(cands, F) { // um arquivo por certificado: PDF primeiro, depois o mais recente
-    var por = {}; cands.forEach(function (c) { c.ks.forEach(function (k) { var o = por[k]; if (!o || (/\.pdf$/i.test(c.f.name) && !/\.pdf$/i.test(o.f.name)) || ((/\.pdf$/i.test(c.f.name) === /\.pdf$/i.test(o.f.name)) && c.f.lastModified > o.f.lastModified)) por[k] = c; }); });
+  async function escolhe(cands, F) { // um arquivo por certificado: nome forte primeiro, depois PDF, depois o mais recente
+    var melhor = function (a, b) { if (a.forte !== b.forte) return a.forte ? a : b; var pa = /\.pdf$/i.test(a.f.name), pb = /\.pdf$/i.test(b.f.name); if (pa !== pb) return pa ? a : b; return a.f.lastModified >= b.f.lastModified ? a : b; };
+    var porK = {}; cands.forEach(function (c) { c.ks.forEach(function (x) { (porK[x.k] = porK[x.k] || []).push({ f: c.f, forte: x.forte }); }); });
+    var por = {};
+    for (var k in porK) {
+      var lst = porK[k].slice().sort(function (a, b) { return melhor(a, b) === a ? -1 : 1; });
+      for (var i = 0; i < lst.length; i++) { if (lst[i].forte || await temNumero(lst[i].f, F.req[k])) { por[k] = lst[i]; break; } }
+    }
     var ach = [], vis = new Set(); Object.keys(por).forEach(function (k) { if (!vis.has(por[k].f)) { vis.add(por[k].f); ach.push(por[k].f); } });
     var nf = F.keys.filter(function (k) { return !por[k]; }).map(function (k) { return F.req[k]; });
-    if (ach.length) addFiles(ach);
-    if (!ach.length) alertaPasta('err', 'Não achei nenhum dos ' + F.keys.length + ' respaldos nesta pasta.', 'Procurei pelo número no nome do arquivo: ' + F.keys.map(function (k) { return F.req[k]; }).join(', '));
-    else alertaPasta(nf.length ? '' : 'ok', 'Achei ' + Object.keys(por).length + ' de ' + F.keys.length + ' respaldos e coloquei na lista.', nf.length ? 'Não achei: ' + nf.join(', ') : '');
+    if (!ach.length) { alertaPasta('err', 'Não achei nenhum dos ' + F.keys.length + ' respaldos nesta pasta.', 'Procurei pelo número no nome do arquivo (ex.: N0-00598842-3837-26 ou 003364-3837-26): ' + F.keys.map(function (k) { return F.req[k]; }).join(', ')); return; }
+    alertaPasta(nf.length ? '' : 'ok', 'Achei ' + Object.keys(por).length + ' de ' + F.keys.length + ' respaldos e coloquei na lista.', nf.length ? 'Não achei: ' + nf.join(', ') : '');
+    var jaConferiu = !$('out').classList.contains('hide');
+    addFiles(ach);
+    if (jaConferiu) queue.then(function () { $('run').click(); }); // confere de novo com os respaldos novos
   }
+  var REQ = {};
   var ACEITA = /\.(pdf|xlsx|xlsm)$/i;
   async function varre(dir, keys, out, prof, cont) {
     for await (var ent of dir.values()) {
       if (cont.n++ > 40000) return;
-      if (ent.kind === 'file') { if (ACEITA.test(ent.name)) { var ks = casaNome(ent.name, keys); if (ks.length) out.push({ f: await ent.getFile(), ks: ks }); } }
+      if (ent.kind === 'file') { if (ACEITA.test(ent.name)) { var ks = casaNome(ent.name, keys, REQ); if (ks.length) out.push({ f: await ent.getFile(), ks: ks }); } }
       else if (prof < 4 && !/^[.$~]/.test(ent.name)) await varre(ent, keys, out, prof + 1, cont);
     }
   }
@@ -1197,13 +1231,13 @@
     if (!dir) { try { dir = await window.showDirectoryPicker({ id: 'hub-respaldos', mode: 'read' }); } catch (e) { if (e && e.name === 'AbortError') return; $('pastaIn').click(); return; } guarda(dir); }
     $('pastaOutra').classList.remove('hide');
     alertaPasta('', 'Procurando ' + F.keys.length + ' respaldo(s) na pasta ' + dir.name + '…', 'Em pasta de rede pode levar alguns segundos.');
-    var out = []; try { await varre(dir, F.keys, out, 0, { n: 0 }); } catch (e) { alertaPasta('err', 'Não consegui ler a pasta ' + dir.name + '.', String(e && e.message || e)); return; }
+    REQ = F.req; var out = []; try { await varre(dir, F.keys, out, 0, { n: 0 }); } catch (e) { alertaPasta('err', 'Não consegui ler a pasta ' + dir.name + '.', String(e && e.message || e)); return; }
     escolhe(out, F);
   }
   $('pasta').onclick = function () { buscaPasta(false); };
   $('pastaOutra').onclick = function () { buscaPasta(true); };
   $('pastaIn').onchange = function () { var F = faltam(); if (!F) { this.value = ''; return; } var out = [];
-    Array.prototype.forEach.call(this.files, function (f) { if (ACEITA.test(f.name)) { var ks = casaNome(f.name, F.keys); if (ks.length) out.push({ f: f, ks: ks }); } }); this.value = ''; escolhe(out, F); };
+    Array.prototype.forEach.call(this.files, function (f) { if (ACEITA.test(f.name)) { var ks = casaNome(f.name, F.keys, F.req); if (ks.length) out.push({ f: f, ks: ks }); } }); this.value = ''; escolhe(out, F); };
   lembrada().then(function (h) { if (h) $('pastaOutra').classList.remove('hide'); });
 
   render();
