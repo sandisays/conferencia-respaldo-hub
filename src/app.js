@@ -932,7 +932,8 @@
   function paint(P, A, issues, lotRows, axRows, resp, RG, GRADE, EXP) {
     var nE = issues.filter(function (i) { return i.k === 'err'; }).length, nW = issues.length - nE;
     var nOk = lotRows.filter(function (r) { return r.st === 'ok'; }).length;
-    var h = '<div class="sum"><div class="kpi ' + (nE ? 'err' : 'ok') + '"><b>' + nE + '</b><span>divergência' + (nE === 1 ? '' : 's') + '</span></div>' +
+    var h = (ULT ? '<div class="pmsg noprint ' + (ULT.k === 'ok' ? 'ok' : '') + '" style="margin-bottom:12px">' + esc(ULT.t) + (ULT.d ? '<small>' + esc(ULT.d) + '</small>' : '') + '</div>' : '') + '<div class="sum">'; ULT = null;
+    h += '<div class="kpi ' + (nE ? 'err' : 'ok') + '"><b>' + nE + '</b><span>divergência' + (nE === 1 ? '' : 's') + '</span></div>' +
       '<div class="kpi warn"><b>' + nW + '</b><span>aviso' + (nW === 1 ? '' : 's') + ' para olhar</span></div>' +
       '<div class="kpi ok"><b>' + nOk + '/' + lotRows.length + '</b><span>lotes do PSCF conferidos sem problema</span></div></div>';
     var sifs = Array.from(new Set(P.lines.map(function (l) { return l.sif; }).concat(A ? A.prods.map(function (p) { return p.sif; }) : []).filter(Boolean))).sort(function (a, b) { return a - b; });
@@ -949,7 +950,7 @@
     var errs = issues.filter(function (i) { return i.k === 'err'; }), wrs = issues.filter(function (i) { return i.k === 'warn'; });
     if (!issues.length) h += '<div class="allok">Tudo confere entre PSCF, Anexo IV e os documentos de respaldo.</div>';
     if (errs.length) h += '<h2>Divergências</h2><ul class="issues">' + errs.map(li).join('') + '</ul>';
-    if (issues.some(function (i) { return /não foi carregado\.$/.test(i.t); })) h += '<div class="row noprint" style="margin-top:10px"><span class="sub">Faltam respaldos? A ferramenta procura pelo número no nome do arquivo e confere de novo.</span><div><button class="btn ghost" id="pasta2">Buscar os que faltam na pasta</button></div></div>';
+    if (issues.some(function (i) { return /não foi carregado\.$/.test(i.t); })) h += '<div class="row noprint" style="margin-top:10px"><span class="sub">Faltam respaldos? A ferramenta procura pelo número no nome do arquivo e confere de novo.</span><div><button class="btn ghost" id="pasta2">Buscar os que faltam na pasta</button></div></div><div id="pastaMsg2" class="pmsg noprint hide"></div>';
     if (wrs.length) h += '<h2 style="margin-top:16px">Avisos</h2><ul class="issues">' + wrs.map(li).join('') + '</ul>';
     var nomeSalvo = ''; try { nomeSalvo = localStorage.getItem('hub-nome') || ''; } catch (e) {}
     h += '<div class="tools"><label class="nome">Conferido por <input id="nome" placeholder="seu nome" value="' + esc(nomeSalvo) + '" autocomplete="name"></label>' +
@@ -981,7 +982,7 @@
     });
     if (resp.length) h += '</div></details>';
     h += '<div class="wm" aria-hidden="true"><div></div></div>';
-    $('out').innerHTML = h; ligaFerramentas(); ligaFotos(EXP); var p2 = $('pasta2'); if (p2) p2.onclick = function () { buscaPasta(false); $('entrada').scrollIntoView({ behavior: 'smooth' }); };
+    $('out').innerHTML = h; ligaFerramentas(); ligaFotos(EXP); var p2 = $('pasta2'); if (p2) p2.onclick = function () { $('pastaMsg2').classList.remove('hide'); buscaPasta(false); };
     $('out').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
@@ -1152,7 +1153,11 @@
   window.addEventListener('beforeprint', function () { var i = $('nome'); if (i && i.value.trim()) marca(i.value.trim()); });
 
   /* ---------- buscar os respaldos numa pasta ---------- */
-  function alertaPasta(k, t, d) { var m = $('pastaMsg'); m.className = 'pmsg ' + (k || ''); m.innerHTML = esc(t) + (d ? '<small>' + esc(d) + '</small>' : ''); }
+  function alertaPasta(k, t, d, busy, extra) {
+    ['pastaMsg', 'pastaMsg2'].forEach(function (id) { var m = $(id); if (!m) return; m.className = 'pmsg ' + (k || '') + (busy ? ' busy' : '');
+      m.innerHTML = esc(t) + (d ? '<small>' + esc(d) + '</small>' : '') + (busy ? '<div class="pbar"><i></i></div>' : '') + (extra || ''); });
+    var m2 = $('pastaMsg2'); if (m2 && !m2.classList.contains('hide')) m2.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }
   // certificados que a carga usa: PSCF + Anexo IV
   function necessarios() {
     var req = {}, pf = files.find(function (f) { return f.type === 'pscf' && f.status === 'ok'; }), af = files.find(function (f) { return f.type === 'anexo4' && f.status === 'ok'; });
@@ -1225,10 +1230,11 @@
     if (!ach.length) { alertaPasta('err', 'Não achei nenhum dos ' + F.keys.length + ' respaldos nesta pasta.', 'Procurei pelo número no nome do arquivo (ex.: N0-00598842-3837-26 ou 003364-3837-26): ' + F.keys.map(function (k) { return F.req[k]; }).join(', ') + '. ' + W0); W0 = ''; return; }
     alertaPasta(nf.length ? '' : 'ok', 'Achei ' + Object.keys(por).length + ' de ' + F.keys.length + ' respaldos e coloquei na lista.', (nf.length ? 'Não achei: ' + nf.join(', ') + '. ' : '') + W0); W0 = '';
     var jaConferiu = !$('out').classList.contains('hide');
+    ULT = { k: nf.length ? 'warn' : 'ok', t: 'Busca na pasta: achei ' + Object.keys(por).length + ' de ' + F.keys.length + ' respaldos e conferi de novo.', d: (nf.length ? 'Não achei: ' + nf.join(', ') + '. ' : '') + W0 };
     addFiles(ach);
     if (jaConferiu) queue.then(function () { $('run').click(); }); // confere de novo com os respaldos novos
   }
-  var REQ = {}, W0 = '';
+  var REQ = {}, W0 = '', ULT = null;
   var ACEITA = /\.(pdf|jpe?g|png)$/i; // respaldo é PDF ou foto; planilha com o mesmo número (ex.: relatório) fica de fora
   // olha primeiro os arquivos da pasta, depois as subpastas; para quando todos os números foram achados pelo nome completo
   async function varre(dir, keys, out, prof, cont) {
@@ -1236,7 +1242,7 @@
     for await (var ent of dir.values()) {
       if (cont.fim) return;
       if (++cont.n > 300000) { cont.cheio = cont.fim = true; return; }
-      if (cont.n % 2000 === 0) alertaPasta('', 'Procurando ' + keys.length + ' respaldo(s) na pasta ' + cont.raiz + '…', fmtN(cont.n) + ' arquivos olhados até agora.');
+      if (cont.n % 2000 === 0) alertaPasta('', 'Procurando ' + keys.length + ' respaldo(s) na pasta ' + cont.raiz + '…', fmtN(cont.n) + ' arquivos olhados até agora.', true);
       if (ent.kind === 'file') { if (ACEITA.test(ent.name)) { var ks = casaNome(ent.name, keys, REQ); if (ks.length) { out.push({ f: await ent.getFile(), ks: ks }); ks.forEach(function (x) { if (x.forte) cont.fortes.add(x.k); }); if (cont.fortes.size >= keys.length) { cont.fim = true; return; } } } }
       else if (prof < 4 && !/^[.$~]/.test(ent.name)) subs.push(ent);
     }
@@ -1245,23 +1251,38 @@
   var DB = function () { return new Promise(function (ok, no) { var r = indexedDB.open('hub-respaldo', 1); r.onupgradeneeded = function () { r.result.createObjectStore('kv'); }; r.onsuccess = function () { ok(r.result); }; r.onerror = function () { no(r.error); }; }); };
   async function guarda(h) { try { var db = await DB(); db.transaction('kv', 'readwrite').objectStore('kv').put(h, 'pasta'); } catch (e) {} }
   async function lembrada() { try { var db = await DB(); return await new Promise(function (ok) { var r = db.transaction('kv').objectStore('kv').get('pasta'); r.onsuccess = function () { ok(r.result || null); }; r.onerror = function () { ok(null); }; }); } catch (e) { return null; } }
-  async function buscaPasta(outra) {
+  // A janela de escolher pasta só abre logo depois do clique: nada de esperar antes de chamá-la.
+  var PASTA_H = null, ALT = ' <button class="btn link" data-alt="1">Usar o modo alternativo</button>';
+  function podePicker() { try { return !!window.showDirectoryPicker && window.self === window.top; } catch (e) { return false; } }
+  function modoAlt() { alertaPasta('', 'Escolha a pasta na janela do navegador e confirme em "Carregar".', 'Em pasta grande ou de rede o navegador pode levar alguns segundos para listar os arquivos antes de começar a busca.', true); $('pastaIn').click(); }
+  function buscaPasta(outra) {
     var F = faltam(); if (!F) return;
-    if (!window.showDirectoryPicker) { $('pastaIn').click(); return; }
-    var dir = null;
-    if (!outra) { var h = await lembrada(); if (h) { try { if ((await h.queryPermission({ mode: 'read' })) === 'granted' || (await h.requestPermission({ mode: 'read' })) === 'granted') dir = h; } catch (e) {} } }
-    if (!dir) { try { dir = await window.showDirectoryPicker({ id: 'hub-respaldos', mode: 'read' }); } catch (e) { if (e && e.name === 'AbortError') return; $('pastaIn').click(); return; } guarda(dir); }
-    $('pastaOutra').classList.remove('hide');
-    alertaPasta('', 'Procurando ' + F.keys.length + ' respaldo(s) na pasta ' + dir.name + '…', 'Em pasta de rede pode levar alguns segundos.');
-    REQ = F.req; var out = [], cont = { n: 0, fortes: new Set(), raiz: dir.name }; try { await varre(dir, F.keys, out, 0, cont); } catch (e) { alertaPasta('err', 'Não consegui ler a pasta ' + dir.name + '.', 'Se for pasta de rede, confira se a unidade está conectada no Windows. ' + String(e && e.message || e)); return; }
-    if (cont.cheio) W0 = 'A pasta tem mais de 300 mil arquivos: escolha uma subpasta mais perto dos respaldos.';
-    escolhe(out, F);
+    if (!podePicker()) { modoAlt(); return; }
+    var p;
+    if (!outra && PASTA_H) { alertaPasta('', 'Abrindo a pasta ' + PASTA_H.name + '…', 'Se o navegador perguntar, permita ver os arquivos.', true); p = PASTA_H.requestPermission({ mode: 'read' }).then(function (r) { if (r !== 'granted') throw Object.assign(new Error('sem permissão'), { name: 'NotAllowedError' }); return PASTA_H; }); }
+    else { alertaPasta('', 'Escolha a pasta na janela que abriu.', 'Ex.: M:\\SSF-SIF3403\\Entrada. A busca começa assim que você clicar em Selecionar pasta.', true); p = window.showDirectoryPicker({ id: 'hub-respaldos', mode: 'read' }); }
+    p.then(function (dir) { PASTA_H = dir; guarda(dir); mostraUltima(); return procuraEm(dir, F); }).catch(function (e) {
+      if (e && e.name === 'AbortError') { alertaPasta('', 'Busca cancelada: nenhuma pasta foi escolhida.'); return; }
+      alertaPasta('err', 'O navegador não deixou abrir a pasta' + (e && e.name === 'NotAllowedError' ? ' (permissão negada).' : '.'), 'Clique em "Escolher outra pasta" ou use o modo alternativo. ' + String(e && e.message || e), false, ALT);
+    });
   }
+  async function procuraEm(dir, F) {
+    alertaPasta('', 'Procurando ' + F.keys.length + ' respaldo(s) na pasta ' + dir.name + '…', 'Em pasta de rede pode levar alguns segundos.', true);
+    REQ = F.req; var out = [], cont = { n: 0, fortes: new Set(), raiz: dir.name };
+    try { await varre(dir, F.keys, out, 0, cont); } catch (e) { alertaPasta('err', 'Não consegui ler a pasta ' + dir.name + '.', 'Se for pasta de rede, confira se a unidade está conectada no Windows. ' + String(e && e.message || e), false, ALT); return; }
+    if (cont.cheio) W0 = 'A pasta tem mais de 300 mil arquivos: escolha uma subpasta mais perto dos respaldos.';
+    alertaPasta('', 'Conferindo os arquivos achados…', '', true);
+    await escolhe(out, F);
+  }
+  function mostraUltima() { var b = $('pasta'), o = $('pastaOutra'); if (PASTA_H) { b.lastChild.textContent = 'Buscar respaldos na pasta ' + PASTA_H.name; o.classList.remove('hide'); } }
   $('pasta').onclick = function () { buscaPasta(false); };
   $('pastaOutra').onclick = function () { buscaPasta(true); };
   $('pastaIn').onchange = function () { var F = faltam(); if (!F) { this.value = ''; return; } var out = [];
+    alertaPasta('', 'Procurando nos ' + fmtN(this.files.length) + ' arquivos da pasta…', '', true);
     Array.prototype.forEach.call(this.files, function (f) { if (ACEITA.test(f.name)) { var ks = casaNome(f.name, F.keys, F.req); if (ks.length) out.push({ f: f, ks: ks }); } }); this.value = ''; escolhe(out, F); };
-  lembrada().then(function (h) { if (h) $('pastaOutra').classList.remove('hide'); });
+  $('pastaIn').addEventListener('cancel', function () { alertaPasta('', 'Busca cancelada: nenhuma pasta foi escolhida.'); });
+  Promise.race([lembrada(), new Promise(function (ok) { setTimeout(function () { ok(null); }, 2500); })]).then(function (h) { if (h && h.kind === 'directory') { PASTA_H = h; mostraUltima(); } });
+  document.addEventListener('click', function (e) { var b = e.target.closest && e.target.closest('[data-alt]'); if (b) modoAlt(); });
 
   render();
   window.__hub = { files: function () { return files; }, parseDcpoa: parseDcpoa, parseHash: parseHash, parseSigExp: parseSigExp, parsePSCF: parsePSCF, parseAnexo: parseAnexo, analyse: analyse, parseRespaldo: parseRespaldo, regra: regra, checaHab: checaHab, regraTxt: regraTxt };

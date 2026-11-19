@@ -164,3 +164,7 @@
   :root[data-theme="dark"] .logo.navy { box-shadow:0 8px 20px -8px rgba(0,0,0,.7), inset 0 0 0 1px rgba(255,255,255,.08); }
   @media (prefers-color-scheme:dark) { :root:not([data-theme="light"]) .logo.navy { box-shadow:0 8px 20px -8px rgba(0,0,0,.7), inset 0 0 0 1px rgba(255,255,255,.08); } }
   .logo.soft { background:var(--accbg); box-shadow:none; border:1px solid var(--line); }
+  .pmsg .pbar { height:4px; border-radius:4px; background:var(--line); overflow:hidden; margin-top:8px; position:relative; }
+  .pmsg .pbar i { position:absolute; top:0; bottom:0; width:35%; border-radius:4px; background:var(--eq); animation:pb 1.1s ease-in-out infinite; }
+  @keyframes pb { 0% { left:-35%; } 100% { left:100%; } }
+  #pastaMsg2 { margin-top:10px; }
