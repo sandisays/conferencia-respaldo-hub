@@ -171,14 +171,17 @@
   :root[data-theme="dark"] .c8 { --dc:#c5d98a; --db:#2a3214; } :root[data-theme="dark"] .c9 { --dc:#aab0f5; --db:#23264a; } :root[data-theme="dark"] .c10 { --dc:#e0b896; --db:#3a2618; } :root[data-theme="dark"] .c11 { --dc:#7cc4ea; --db:#13324a; }
   @media (prefers-color-scheme:dark) { :root:not([data-theme="light"]) .c8 { --dc:#c5d98a; --db:#2a3214; } :root:not([data-theme="light"]) .c9 { --dc:#aab0f5; --db:#23264a; } :root:not([data-theme="light"]) .c10 { --dc:#e0b896; --db:#3a2618; } :root:not([data-theme="light"]) .c11 { --dc:#7cc4ea; --db:#13324a; } }
   @media print { .c8 { --dc:#55661c !important; --db:#ebf0d6 !important; } .c9 { --dc:#3a3fa8 !important; --db:#e3e4f8 !important; } .c10 { --dc:#7a4a2a !important; --db:#f1e4da !important; } .c11 { --dc:#0f5f8a !important; --db:#d9ecf6 !important; } }
+  .logo.navy { background:linear-gradient(135deg,#2d4f73,#172b42); box-shadow:0 8px 20px -8px rgba(23,43,66,.6); }
+  :root[data-theme="dark"] .logo.navy { box-shadow:0 8px 20px -8px rgba(0,0,0,.7), inset 0 0 0 1px rgba(255,255,255,.08); }
+  @media (prefers-color-scheme:dark) { :root:not([data-theme="light"]) .logo.navy { box-shadow:0 8px 20px -8px rgba(0,0,0,.7), inset 0 0 0 1px rgba(255,255,255,.08); } }
 
 </style>
 </head>
 <body>
 <main>
   <header>
-    <div class="logo" title="Conferência de carga refrigerada"><svg width="40" height="40" viewBox="0 0 32 32" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-      <g stroke="#fff" stroke-width="1.6"><path d="M3 12.5 13 8l15 4v11.5L18 28 3 24z" fill="rgba(255,255,255,.14)"/><path d="M3 12.5 18 16.5 28 12M18 16.5V28"/>
+    <div class="logo navy" title="Conferência de carga refrigerada"><svg width="40" height="40" viewBox="0 0 32 32" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <g stroke="#fff" stroke-width="1.6"><path d="M3 12.5 13 8l15 4v11.5L18 28 3 24z" fill="rgba(255,255,255,.10)"/><path d="M3 12.5 18 16.5 28 12M18 16.5V28"/>
       <path d="M6 14.6v8.6M9 15.4v8.6M12 16.2v8.6M15 17v8.6" stroke-width="1.1" opacity=".85"/><path d="M21 15.8v9M24.5 14.6v9" stroke-width="1.1" opacity=".85"/></g>
       <circle cx="24.2" cy="7.8" r="6.3" fill="#e3f4fd"/><g stroke="#1e7fbf" stroke-width="1.35"><path d="M24.2 3.6v8.4M20.56 5.7l7.28 4.2M20.56 9.9l7.28-4.2"/><path d="M23.1 4.5l1.1 1 1.1-1M23.1 11.1l1.1-1 1.1 1"/></g></svg></div>
     <div class="grow">
@@ -234,7 +237,7 @@
       <li>Para imprimir, baixar a página ou o compilado, preencha o seu nome: ele vai na marca d'água junto com a data.</li>
     </ul>
   </div>
-  <footer>Conferência de respaldo do HUB · v2.7</footer>
+  <footer>Conferência de respaldo do HUB · v2.8</footer>
 </main>
 
 <script>/**
