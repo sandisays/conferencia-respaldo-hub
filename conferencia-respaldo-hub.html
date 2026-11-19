@@ -158,6 +158,19 @@
   .fres li.ok { color:var(--ok); } .fres li.warn { color:var(--pr); }
   .flist li.img::before { background:#6b4fbb; }
   @media print { .fotos button { display:none; } }
+  /* uma cor por documento (selo + número) */
+  .doc { white-space:nowrap; } .doc .tag { color:var(--dc); background:var(--db); } .doc { color:var(--dc); font-weight:600; }
+  .c0 { --dc:#2b4f7a; --db:#e0e9f4; } .c1 { --dc:#1b6b57; --db:#dcefe7; } .c2 { --dc:#5b3f9e; --db:#ebe5f7; } .c3 { --dc:#8a5a00; --db:#f9ecd2; }
+  .c4 { --dc:#16656b; --db:#d9eff1; } .c5 { --dc:#9c2f63; --db:#f8e1ec; } .c6 { --dc:#a8390b; --db:#fbe4d8; } .c7 { --dc:#3d4656; --db:#e4e7ec; }
+  :root[data-theme="dark"] .c0 { --dc:#9cc0ee; --db:#1d2e44; } :root[data-theme="dark"] .c1 { --dc:#6fcdb1; --db:#173a31; } :root[data-theme="dark"] .c2 { --dc:#c3b2f2; --db:#2c2348; } :root[data-theme="dark"] .c3 { --dc:#f0c46e; --db:#3d2e12; }
+  :root[data-theme="dark"] .c4 { --dc:#78d3d9; --db:#143a3d; } :root[data-theme="dark"] .c5 { --dc:#f39cc4; --db:#43182c; } :root[data-theme="dark"] .c6 { --dc:#ffa985; --db:#4a2616; } :root[data-theme="dark"] .c7 { --dc:#c4ccd8; --db:#2a2f38; }
+  @media (prefers-color-scheme:dark) { :root:not([data-theme="light"]) .c0 { --dc:#9cc0ee; --db:#1d2e44; } :root:not([data-theme="light"]) .c1 { --dc:#6fcdb1; --db:#173a31; } :root:not([data-theme="light"]) .c2 { --dc:#c3b2f2; --db:#2c2348; } :root:not([data-theme="light"]) .c3 { --dc:#f0c46e; --db:#3d2e12; }
+    :root:not([data-theme="light"]) .c4 { --dc:#78d3d9; --db:#143a3d; } :root:not([data-theme="light"]) .c5 { --dc:#f39cc4; --db:#43182c; } :root:not([data-theme="light"]) .c6 { --dc:#ffa985; --db:#4a2616; } :root:not([data-theme="light"]) .c7 { --dc:#c4ccd8; --db:#2a2f38; } }
+  @media print { .c0 { --dc:#2b4f7a !important; --db:#e0e9f4 !important; } .c1 { --dc:#1b6b57 !important; --db:#dcefe7 !important; } .c2 { --dc:#5b3f9e !important; --db:#ebe5f7 !important; } .c3 { --dc:#8a5a00 !important; --db:#f9ecd2 !important; } .c4 { --dc:#16656b !important; --db:#d9eff1 !important; } .c5 { --dc:#9c2f63 !important; --db:#f8e1ec !important; } .c6 { --dc:#a8390b !important; --db:#fbe4d8 !important; } .c7 { --dc:#3d4656 !important; --db:#e4e7ec !important; } }
+  .c8 { --dc:#55661c; --db:#ebf0d6; } .c9 { --dc:#3a3fa8; --db:#e3e4f8; } .c10 { --dc:#7a4a2a; --db:#f1e4da; } .c11 { --dc:#0f5f8a; --db:#d9ecf6; }
+  :root[data-theme="dark"] .c8 { --dc:#c5d98a; --db:#2a3214; } :root[data-theme="dark"] .c9 { --dc:#aab0f5; --db:#23264a; } :root[data-theme="dark"] .c10 { --dc:#e0b896; --db:#3a2618; } :root[data-theme="dark"] .c11 { --dc:#7cc4ea; --db:#13324a; }
+  @media (prefers-color-scheme:dark) { :root:not([data-theme="light"]) .c8 { --dc:#c5d98a; --db:#2a3214; } :root:not([data-theme="light"]) .c9 { --dc:#aab0f5; --db:#23264a; } :root:not([data-theme="light"]) .c10 { --dc:#e0b896; --db:#3a2618; } :root:not([data-theme="light"]) .c11 { --dc:#7cc4ea; --db:#13324a; } }
+  @media print { .c8 { --dc:#55661c !important; --db:#ebf0d6 !important; } .c9 { --dc:#3a3fa8 !important; --db:#e3e4f8 !important; } .c10 { --dc:#7a4a2a !important; --db:#f1e4da !important; } .c11 { --dc:#0f5f8a !important; --db:#d9ecf6 !important; } }
 
 </style>
 </head>
@@ -221,7 +234,7 @@
       <li>Para imprimir, baixar a página ou o compilado, preencha o seu nome: ele vai na marca d'água junto com a data.</li>
     </ul>
   </div>
-  <footer>Conferência de respaldo do HUB · v2.4</footer>
+  <footer>Conferência de respaldo do HUB · v2.5</footer>
 </main>
 
 <script>/**
@@ -1534,19 +1547,21 @@ else if (typeof exports === 'object')
     function li(i) { return '<li class="' + i.k + '"><span class="w">' + (i.k === 'err' ? '✕' : '!') + '</span>' + esc(i.t) + (i.d ? '<small>' + esc(i.d) + '</small>' : '') + '</li>'; }
     function ic(st) { return '<span class="ico ' + st + '">' + (st === 'ok' ? '✓' : st === 'err' ? '✕' : '!') + '</span>'; }
 
-    if (GRADE && GRADE.cols.length > 1) h += blocoExportacao(GRADE, EXP);
+    if (GRADE && GRADE.rows.length) h += blocoExportacao(GRADE, EXP);
+    var COR = {}, nc = 0, cor = function (num) { var k = certKey(num); if (!k) return 'c0'; if (COR[k] == null) COR[k] = nc++ % 12; return 'c' + COR[k]; };
+    lotRows.forEach(function (r) { if (r.l.cert) cor(r.l.cert); }); resp.forEach(function (f) { if (f.numero) cor(f.numero); });
     h += '<details class="blk"><summary><h3>Lotes do PSCF (' + lotRows.length + ')</h3></summary><div class="tw"><table><thead><tr><th></th><th>Documento</th><th>Lote</th><th class="n">Vol.</th><th class="n">Peso líq.</th><th>Rótulo</th><th>Item</th><th>Observação</th></tr></thead><tbody>' +
       lotRows.map(function (r) { var l = r.l, tp = l.cert ? TYPES[r.doc ? r.doc.type : tipoNum(l.cert)] : ''; var rot = r.row && r.row.rotulo && r.row.rotulo !== l.rotulo ? l.rotulo + ' × ' + r.row.rotulo : l.rotulo;
-        return '<tr class="' + (r.st === 'err' ? 'bad' : r.st === 'warn' ? 'wrn' : '') + '"><td>' + ic(r.st) + '</td><td class="mono"><span class="tag eq">' + esc(tp) + '</span> ' + esc(l.cert || '—') + '</td><td class="mono">' + esc(l.lote) + '</td><td class="n">' + fmtN(l.vol) + '</td><td class="n">' + fmtN(l.pl, 3) + '</td><td class="mono">' + esc(rot) + '</td><td>' + esc(r.row ? r.row.label : '—') + '</td><td>' + esc(r.msg || '') + '</td></tr>'; }).join('') + '</tbody></table></div></details>';
+        return '<tr class="' + (r.st === 'err' ? 'bad' : r.st === 'warn' ? 'wrn' : '') + '"><td>' + ic(r.st) + '</td><td class="mono">' + (l.cert ? '<span class="doc ' + cor(l.cert) + '"><span class="tag">' + esc(tp) + '</span> ' + esc(l.cert) + '</span>' : '—') + '</td><td class="mono">' + esc(l.lote) + '</td><td class="n">' + fmtN(l.vol) + '</td><td class="n">' + fmtN(l.pl, 3) + '</td><td class="mono">' + esc(rot) + '</td><td>' + esc(r.row ? r.row.label : '—') + '</td><td>' + esc(r.msg || '') + '</td></tr>'; }).join('') + '</tbody></table></div></details>';
 
     if (A) h += '<details class="blk"><summary><h3>PSCF × Anexo IV (por SIF e lote)</h3></summary><div class="tw"><table><thead><tr><th></th><th>SIF</th><th>Lote</th><th class="n">Vol. PSCF</th><th class="n">Vol. Anexo</th><th class="n">Peso líq. PSCF</th><th class="n">Peso líq. Anexo</th><th>Observação</th></tr></thead><tbody>' +
       axRows.map(function (r) { return '<tr class="' + (r.st === 'err' ? 'bad' : '') + '"><td>' + ic(r.st) + '</td><td>' + esc(r.sif) + '</td><td class="mono">' + esc(r.lote) + '</td><td class="n">' + (r.p ? fmtN(r.p.vol) : '—') + '</td><td class="n">' + (r.a ? fmtN(r.a.vol) : '—') + '</td><td class="n">' + (r.p ? fmtN(r.p.pl, 3) : '—') + '</td><td class="n">' + (r.a ? fmtN(r.a.pl, 3) : '—') + '</td><td>' + esc(r.msg) + '</td></tr>'; }).join('') +
-      '</tbody></table></div>' + (A.prods.length ? '<p class="sub" style="margin-top:8px">Certificados declarados no Anexo IV: ' + A.prods.map(function (p) { return 'produto ' + p.n + ' (SIF ' + esc(p.sif) + '): ' + p.certs.map(function (c) { return esc(c.num) + ' [' + c.col + ']'; }).join(', '); }).join(' · ') + '</p>' : '') + '</details>';
+      '</tbody></table></div>' + (A.prods.length ? '<p class="sub" style="margin-top:8px">Certificados declarados no Anexo IV: ' + A.prods.map(function (p) { return 'produto ' + p.n + ' (SIF ' + esc(p.sif) + '): ' + p.certs.map(function (c) { return '<span class="doc ' + cor(c.num) + '"><span class="tag">' + esc(c.col) + '</span> ' + esc(c.num) + '</span>'; }).join(' '); }).join(' · ') + '</p>' : '') + '</details>';
 
     if (resp.length) h += '<details class="blk grp"><summary><h3>Documentos de respaldo (' + resp.length + ')</h3></summary><div class="inner">';
     resp.forEach(function (f) {
       var D = f.parsed;
-      h += '<details class="blk"><summary><h3>' + esc(TYPES[f.type]) + ' ' + esc(f.numero || '(nº não lido)') + (f.pages.some(function (p) { return p.ocr; }) ? ' <span class="tag warn">OCR</span>' : '') + '</h3></summary>' +
+      h += '<details class="blk"><summary><h3><span class="doc ' + cor(f.numero) + '"><span class="tag">' + esc(TYPES[f.type]) + '</span> ' + esc(f.numero || '(nº não lido)') + '</span>' + (f.pages.some(function (p) { return p.ocr; }) ? ' <span class="tag warn">OCR</span>' : '') + '</h3></summary>' +
         '<p class="sub">' + esc(f.name) + (D.destSif ? ' · destinatário SIF ' + esc(D.destSif) : '') + (D.destField ? ' · país de destino: ' + esc(D.destField) : '') + (D.habilDoc.length ? ' · países: ' + esc(D.habilDoc.join(', ')) : '') + '</p>' +
         '<div class="tw"><table><thead><tr><th>Item</th><th>Produto</th><th>Rótulo</th><th>Lotes lidos</th><th class="n">Vol.</th><th class="n">Peso líq.</th><th>Habilitação</th></tr></thead><tbody>' +
         (D.rows.length ? D.rows.map(function (r) { var hb = habilOf(f, r); return '<tr><td>' + esc(r.label) + '</td><td>' + esc(r.name) + '</td><td class="mono">' + esc(r.rotulo || '—') + '</td><td class="lotes">' + cinco(Array.from(r.lots)) + '</td><td class="n">' + fmtN(r.vol) + '</td><td class="n">' + fmtN(r.peso, 2) + '</td><td>' + esc(hb.list.join(', ') || '—') + '</td></tr>'; }).join('') : '<tr><td colspan="7">Não encontrei a tabela de produtos. Lotes no documento: ' + esc(Array.from(D.allLots).join(' ') || 'nenhum') + '</td></tr>') +
