@@ -155,10 +155,12 @@
 
   function classify(text, nome) {
     var U = norm(text), N = norm(nome || '');
-    // HashData: o título pode quebrar a linha ("Guia de Carregamento de" / "Mercadorias"), e cada exportação muda o rodapé
+    // HashData: o título pode quebrar a linha, o nome do usuário no topo muda ("Quali9", "Qualidade"...) e às vezes vem sem numeração.
+    // Reconhece pelo conjunto de sinais do formulário, não por uma palavra só.
     var U1 = U.replace(/\s+/g, ' '), N1 = N.replace(/[_\s]+/g, ' ');
-    if (/GUIA DE CARREGAMENTO DE MERCADORIAS|HASHDATA|PLAN_?CD_?ITJ_?036/.test(U1) || (/CRIACAO NO DISPOSITIVO/.test(U1) && /RECEBIMENTO NO SERVIDOR/.test(U1)) ||
-      ((/QUALI9|QUALIDADE/.test(U1) || /^PERGUNTA RESPOSTA$|PERGUNTA\s+RESPOSTA/.test(U1)) && /CONTEINER|CONTAINER/.test(U1) && /LACRE/.test(U1)) || /GUIA DE CARREGAMENTO|HASHDATA|PLAN CD ITJ 036/.test(N1)) return 'hashdata';
+    if (/GUIA DE CARREGAMENTO DE MERCADORIAS|HASHDATA|PLAN_?CD_?ITJ_?036/.test(U1) || /GUIA DE CARREGAMENTO|HASHDATA|PLAN CD ITJ 036/.test(N1)) return 'hashdata';
+    var SINAIS = [/PERGUNTA\s+RESPOSTA/, /CRIACAO NO DISPOSITIVO/, /RECEBIMENTO NO SERVIDOR/, /OC\.?\s*PSCF/, /N[°º]?\s*DO CONT(E|A)INER/, /LACRE SIF/, /TEMPERATURA INICIO/, /TEMPERATURA FIM/, /TERMOGRAFO/, /ORDEM DE CARGA/, /\b\d+\s+IMAGE(M|NS)\b/, /RESPONSAVEIS PELA AVALIACAO/, /INICIO DA VERIFICACAO DO VEICULO/, /FECHAMENTO DAS? PORTAS?/, /TIPO DE VEICULO/];
+    if (!/CERTIFICADO SANITARIO|DECLARACAO DE PRODUTOS DE ORIGEM|RELATORIO DE CARGA|DANFE/.test(U1) && SINAIS.filter(function (r) { return r.test(U1); }).length >= 4) return 'hashdata';
     if (/DECLARACAO DE PRODUTOS DE ORIGEM ANIMAL/.test(U)) return /FINALIDADE DA DCPOA\s*:\s*SOLICITACAO|SOLICITACAO DE CERTIFICADO SANITARIO/.test(U) ? 'dcpoanova' : 'dcpoa';
     if (/DETALHES DO DOCUMENTO DE TRANSITO/.test(U)) return 'sigsif';
     if (/DANFE|DOCUMENTO AUXILIAR DA NOTA FISCAL/.test(U)) return 'nf';
@@ -389,7 +391,7 @@
     var cands = []; pages.forEach(function (pg) { pg.lines.forEach(function (l) { if (l.words.length < 2 || l.words[0].x0 > (pg.w || 600) * 0.2) return;
       for (var q = 1; q < l.words.length; q++) if (l.words[q].x0 - l.words[q - 1].x1 > 15 && l.words[q].x0 > (pg.w || 600) * 0.35) { cands.push(l.words[q].x0); break; } }); });
     if (cands.length) ax = Math.min.apply(null, cands) - 4;
-    var SKIP = /^(PERGUNTA|CRIACAO NO DISPOSITIVO|RECEBIMENTO NO SERVIDOR|PLAN_|MERCADORIAS_REV|QUALI9|ACOMPANHAMENTO \(FOLLOW-UP\)|\d+ \/ \d+$)/;
+    var SKIP = /^(PERGUNTA|CRIACAO NO DISPOSITIVO|RECEBIMENTO NO SERVIDOR|PLAN_|MERCADORIAS_REV|ACOMPANHAMENTO \(FOLLOW-UP\)|\d+ \/ \d+$)/;
     var ult = null, seq = 0, pend = '', margem;
     pages.forEach(function (pg) {
       margem = (pg.w || 600) * 0.2;
