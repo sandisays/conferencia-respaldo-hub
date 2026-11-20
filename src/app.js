@@ -155,7 +155,10 @@
 
   function classify(text, nome) {
     var U = norm(text), N = norm(nome || '');
-    if (/GUIA DE CARREGAMENTO DE MERCADORIAS|HASHDATA/.test(U) || (/QUALI9/.test(U) && /CONTEINER|CONTAINER/.test(U))) return 'hashdata';
+    // HashData: o título pode quebrar a linha ("Guia de Carregamento de" / "Mercadorias"), e cada exportação muda o rodapé
+    var U1 = U.replace(/\s+/g, ' '), N1 = N.replace(/[_\s]+/g, ' ');
+    if (/GUIA DE CARREGAMENTO DE MERCADORIAS|HASHDATA|PLAN_?CD_?ITJ_?036/.test(U1) || (/CRIACAO NO DISPOSITIVO/.test(U1) && /RECEBIMENTO NO SERVIDOR/.test(U1)) ||
+      ((/QUALI9|QUALIDADE/.test(U1) || /^PERGUNTA RESPOSTA$|PERGUNTA\s+RESPOSTA/.test(U1)) && /CONTEINER|CONTAINER/.test(U1) && /LACRE/.test(U1)) || /GUIA DE CARREGAMENTO|HASHDATA|PLAN CD ITJ 036/.test(N1)) return 'hashdata';
     if (/DECLARACAO DE PRODUTOS DE ORIGEM ANIMAL/.test(U)) return /FINALIDADE DA DCPOA\s*:\s*SOLICITACAO|SOLICITACAO DE CERTIFICADO SANITARIO/.test(U) ? 'dcpoanova' : 'dcpoa';
     if (/DETALHES DO DOCUMENTO DE TRANSITO/.test(U)) return 'sigsif';
     if (/DANFE|DOCUMENTO AUXILIAR DA NOTA FISCAL/.test(U)) return 'nf';
@@ -383,21 +386,29 @@
   function parseHash(pages) {
     var H = { qa: {}, pagQ: {}, lista: [] }, ax = null;
     // coluna da resposta: onde começa a palavra que vem depois de um vão largo nas linhas "N. pergunta   resposta"
-    var cands = []; pages.forEach(function (pg) { pg.lines.forEach(function (l) { if (!/^\d{1,3}\.\s/.test(l.text) || l.words.length < 2) return;
+    var cands = []; pages.forEach(function (pg) { pg.lines.forEach(function (l) { if (l.words.length < 2 || l.words[0].x0 > (pg.w || 600) * 0.2) return;
       for (var q = 1; q < l.words.length; q++) if (l.words[q].x0 - l.words[q - 1].x1 > 15 && l.words[q].x0 > (pg.w || 600) * 0.35) { cands.push(l.words[q].x0); break; } }); });
     if (cands.length) ax = Math.min.apply(null, cands) - 4;
     var SKIP = /^(PERGUNTA|CRIACAO NO DISPOSITIVO|RECEBIMENTO NO SERVIDOR|PLAN_|MERCADORIAS_REV|QUALI9|ACOMPANHAMENTO \(FOLLOW-UP\)|\d+ \/ \d+$)/;
-    var ult = null;
+    var ult = null, seq = 0, pend = '', margem;
     pages.forEach(function (pg) {
+      margem = (pg.w || 600) * 0.2;
       pg.lines.forEach(function (l) {
         var esq = l.words.filter(function (w) { return ax == null || w.x0 < ax; }).map(function (w) { return w.str; }).join(' ').trim(),
           dir = l.words.filter(function (w) { return ax != null && w.x0 >= ax; }).map(function (w) { return w.str; }).join(' ').trim();
-        if (SKIP.test(norm(esq || dir))) return;
+        if (SKIP.test(norm(esq || dir)) || /^PERGUNTA$/.test(norm(esq)) || /^RESPOSTA$/.test(norm(dir))) return;
         var m = /^(\d{1,3})\.\s*(.+)$/.exec(esq);
-        if (m) { ult = { n: +m[1], label: m[2].trim(), value: dir, page: pg.n }; H.lista.push(ult); return; }
-        if (!ult || ult.page !== pg.n) return;
-        if (esq && !dir) { if (!/[?:]$/.test(ult.label)) ult.label += ' ' + esq; } // pergunta em duas linhas
-        else if (dir && !esq && !ult.value) ult.value = dir;                          // resposta na linha de baixo
+        if (m) { pend = ''; ult = { n: +m[1], label: m[2].trim(), value: dir, page: pg.n }; H.lista.push(ult); return; }
+        var naMargem = l.words.length && l.words[0].x0 <= margem;
+        // guia exportado sem numeração: a pergunta fica na coluna da esquerda e a resposta na da direita
+        if (esq && dir && naMargem) { ult = { n: 900 + (++seq), semNum: true, label: (pend ? pend + ' ' : '') + esq, value: dir, page: pg.n }; pend = ''; H.lista.push(ult); return; }
+        if (!esq && dir && pend) { ult = { n: 900 + (++seq), semNum: true, label: pend, value: dir, page: pg.n }; pend = ''; H.lista.push(ult); return; }
+        if (!ult || ult.page !== pg.n) { if (esq && naMargem) pend = (pend ? pend + ' ' : '') + esq; return; }
+        if (esq && !dir) {
+          if (ult.semNum && ult.value && !/^[a-zà-ú(),]/.test(esq)) pend = (pend ? pend + ' ' : '') + esq; // começo da próxima pergunta
+          else if (!/[?:]$/.test(ult.label)) ult.label += ' ' + esq;                                         // pergunta em duas linhas
+        }
+        else if (dir && !esq && !ult.value) ult.value = dir;                                                  // resposta na linha de baixo
       });
     });
     H.lista.forEach(function (x) { H.qa[x.n] = { q: norm(x.label), a: x.value }; H.pagQ[x.n] = x.page; });
@@ -1101,6 +1112,7 @@
   var FOTO_MULTI = /fechamento das? portas?|ve[íi]culo lacrado|portas fechadas|ordem de carga/i;
   var FOTO_VEIC = /(foto|registro).*(placa|condi[çc][õo]es estruturais)/i;
   var FT = { estado: 'off', erro: '', cache: {}, chave: null, grupos: null, H: null, N: null, lendo: false, carregando: false };
+  var rot = function (q) { return (q.semNum ? '' : q.n + '. ') + q.label; };
   var ehFoto = function (re, l) { return re.test(l) && !FOTO_NAO.test(l); };
   async function fotosHash(f, H) {
     var FOTO_RE = (!H.container && H.placa) ? new RegExp(FOTO_RE0.source + '|' + FOTO_VEIC.source, 'i') : FOTO_RE0;
@@ -1150,13 +1162,13 @@
         var dono = new Map(cand.map(function (c) { return [c, []]; }));
         imgs.forEach(function (im) { var own = null; cand.forEach(function (c) { if (c.x.q.page < im.page || (c.x.q.page === im.page && c.y > im.yTop - 4)) own = c; }); if (own && dono.get(own).length < own.x.n) dono.get(own).push(im); });
         var ok = cand.filter(function (c) { return ehFoto(FOTO_RE, c.x.q.label); });
-        if (ok.length && ok.every(function (c) { return dono.get(c).length === c.x.n; })) { ok.forEach(function (c) { grupos.push({ label: c.x.q.n + '. ' + c.x.q.label, imgs: dono.get(c) }); }); return grupos; }
+        if (ok.length && ok.every(function (c) { return dono.get(c).length === c.x.n; })) { ok.forEach(function (c) { grupos.push({ label: rot(c.x.q), imgs: dono.get(c) }); }); return grupos; }
       }
     } catch (e) { console.warn('posição das fotos', e); }
     // 2º jeito: pela ordem das perguntas com "N imagem(ns)"
     var todas = [], pg = 1; while (todas.length < precisa && pg <= pdf.numPages) { todas = todas.concat(await imgsDaPagina(pg)); pg++; }
-    if (todas.length >= precisa && precisa > 0) { var k = 0; comFoto.slice(0, ultimo + 1).forEach(function (x) { var ims = todas.slice(k, k + x.n); k += x.n; if (ehFoto(FOTO_RE, x.q.label)) grupos.push({ label: x.q.n + '. ' + x.q.label, imgs: ims }); }); }
-    else for (var q of qa) grupos.push({ label: q.n + '. ' + q.label, imgs: (await imgsDaPagina(q.page)).concat(await imgsDaPagina(q.page + 1)) });
+    if (todas.length >= precisa && precisa > 0) { var k = 0; comFoto.slice(0, ultimo + 1).forEach(function (x) { var ims = todas.slice(k, k + x.n); k += x.n; if (ehFoto(FOTO_RE, x.q.label)) grupos.push({ label: rot(x.q), imgs: ims }); }); }
+    else for (var q of qa) grupos.push({ label: rot(q), imgs: (await imgsDaPagina(q.page)).concat(await imgsDaPagina(q.page + 1)) });
     return grupos;
   }
   function valoresFoto() { var H = FT.H, N = FT.N, v = []; if (!H) return v;
@@ -1216,6 +1228,8 @@
     if (o.status === 'numero') return '<span class="fo ok">✓ o número confere (não consegui ler as letras ' + esc(o.letras) + ')</span>';
     if (o.status === 'iso') return '<span class="fo bad">⚠ o número bate, mas as letras digitadas (' + esc(o.letras) + ') não fecham com o dígito verificador: confira as letras na foto</span>';
     if (o.status === 'quase') return '<span class="fo warn">⚠ parecido: li ' + esc(o.lido) + ', confira</span>';
+    // termógrafo costuma aparecer de longe no palete: sem número parecido na foto, é aviso neutro
+    if (o.status === 'diferente' && /term[óo]grafo/i.test(g.label) && !o.textos.some(function (t) { return t.replace(/\W/g, '').length >= 6; })) return '<span class="fo na">número não legível nesta foto, confira no olho</span>';
     if (o.status === 'diferente') return '<span class="fo bad">⚠ não achei o número digitado na foto' + (o.textos.length ? ' · li: ' + esc(o.textos.slice(0, 5).join(' · ')) : '') + '</span>';
     return '<span class="fo warn">não consegui ler a foto, confira no olho</span>';
   }
