@@ -1199,13 +1199,44 @@
     desenhaFotos(); lerFotos();
   }
   var RANK = { ok: 5, numero: 4, iso: 3, quase: 2, diferente: 1, nada: 0 };
+  // recorte da foto em volta do código lido (contêiner ou placa), para mostrar onde a ferramenta leu
+  function recorteIdentificacao(px, itens, tipo) {
+    var padrao = tipo === 'placa' ? /^(?!SIF)[A-Z]{3}\d[A-Z0-9]\d{2}$/ : /^[A-Z]{3}[UJZ]\d{7}$/;
+    for (var i = 0; i < itens.length; i++) {
+      var codigo = '', caixas = [];
+      for (var j = i; j < Math.min(i + 4, itens.length); j++) {
+        var b = itens[j]; if (b.ux == null) break;
+        codigo += norm(b.text).replace(/[\s.-]/g, ''); if (codigo.length > 11) break;
+        if (caixas.length && (Math.abs(b.cy - itens[i].cy) > 2 * Math.max(b.h, itens[i].h) || Math.abs(b.cx - itens[j - 1].cx) > 2 * (b.w + itens[j - 1].w))) break;
+        caixas.push(b); if (!padrao.test(codigo)) continue;
+        var xs = [], ys = [];
+        caixas.forEach(function (c) { var dx = (Math.abs(c.ux) * c.w + Math.abs(c.uy) * c.h) * c.sxr / 2, dy = (Math.abs(c.uy) * c.w + Math.abs(c.ux) * c.h) * c.syr / 2; xs.push(c.cx - dx, c.cx + dx); ys.push(c.cy - dy, c.cy + dy); });
+        var mg = Math.max(8, Math.min(Math.max.apply(null, xs) - Math.min.apply(null, xs), Math.max.apply(null, ys) - Math.min.apply(null, ys)) * 0.7);
+        var x = Math.max(0, Math.floor(Math.min.apply(null, xs) - mg)), y = Math.max(0, Math.floor(Math.min.apply(null, ys) - mg));
+        var w = Math.min(px.width, Math.ceil(Math.max.apply(null, xs) + mg)) - x, h = Math.min(px.height, Math.ceil(Math.max.apply(null, ys) + mg)) - y;
+        if (!(w > 0 && h > 0)) continue;
+        var cv = document.createElement('canvas'); cv.width = w; cv.height = h; var ctx = cv.getContext('2d'), pix = ctx.createImageData(w, h);
+        for (var ln = 0; ln < h; ln++) { var ini = ((ln + y) * px.width + x) * 4; pix.data.set(px.data.subarray(ini, ini + w * 4), ln * w * 4); }
+        ctx.putImageData(pix, 0, 0); return cv.toDataURL('image/jpeg', 0.92);
+      }
+    }
+    return '';
+  }
   async function leGrupo(g, alvo, multiplo) {
-    var lidos = [], pausa = function () { return new Promise(function (r) { setTimeout(r, 10); }); };
-    var le = async function (im, k) { var key = im.id + (k ? ':r' + k : ''); if (!FT.cache[key]) { try { FT.cache[key] = await FotoOCR.read(k ? FotoOCR.rotate(im.px, k) : im.px); } catch (e) { FT.cache[key] = []; } } return FT.cache[key]; };
+    var lidos = [], porImg = {}, pausa = function () { return new Promise(function (r) { setTimeout(r, 10); }); };
+    var le = async function (im, k) { var key = im.id + (k ? ':r' + k : ''); if (!FT.cache[key]) { try { FT.cache[key] = await FotoOCR.read(k ? FotoOCR.rotate(im.px, k) : im.px); } catch (e) { FT.cache[key] = []; } } if (!k) porImg[im.id] = FT.cache[key]; return FT.cache[key]; };
     var bateu = function () { return multiplo ? alvo.every(function (a) { return FotoOCR.confere(lidos, a[1]).status === 'ok'; }) : FotoOCR.confere(lidos, alvo).status === 'ok'; };
     for (var im of g.imgs) { lidos = lidos.concat(await le(im, 0)); await pausa(); if (bateu()) break; }
     // se não bateu, tenta a foto girada (lacre fotografado de lado)
     for (var k of [1, 3]) { if (bateu()) break; for (var im2 of g.imgs) { lidos = lidos.concat(await le(im2, k)); await pausa(); } }
+    // contêiner escrito na vertical (letra embaixo de letra, na porta ou na lateral)
+    var cont = multiplo ? (alvo.find(function (a) { return a[0] === 'contêiner'; }) || [])[1] : (/cont[êe]iner|contentor|container/i.test(g.label) ? alvo : null);
+    if (cont && FotoOCR.readStacked && FotoOCR.confere(lidos, cont).status !== 'ok') {
+      for (var im3 of g.imgs) { var key = im3.id + ':vert'; if (!FT.cache[key]) { try { FT.cache[key] = await FotoOCR.readStacked(im3.px); } catch (e) { FT.cache[key] = []; } }
+        lidos = lidos.concat(FT.cache[key]); porImg[im3.id] = (porImg[im3.id] || []).concat(FT.cache[key]); await pausa(); if (FotoOCR.confere(lidos, cont).status === 'ok') break; }
+    }
+    // recorte de onde o contêiner foi lido
+    if (cont && FotoOCR.confere(lidos, cont).status === 'ok' && !g.recorte) for (var im4 of g.imgs) { if (porImg[im4.id] && (g.recorte = recorteIdentificacao(im4.px, porImg[im4.id], 'container'))) break; }
     return lidos;
   }
   async function lerFotos() {
@@ -1241,7 +1272,7 @@
     var nota = { pronto: 'Leitura automática ligada: a ferramenta lê o número na foto e compara com o digitado. Mesmo assim, dê uma olhada nas fotos.', carregando: 'Ligando a leitura automática das fotos…', erro: 'Não consegui ligar a leitura automática: ' + esc(FT.erro) + '. Confira as fotos no olho.' }[FT.estado] || 'Confira no olho se o número da foto é o mesmo que foi digitado. Clique na foto para ampliar.';
     box.innerHTML = '<h3 class="ft">Fotos do HashData: lacre, contêiner, ordem de carga e termógrafo</h3><div class="fvals">' + vals.map(function (x) { return '<div><span>' + esc(x[0]) + '</span><b>' + esc(x[1]) + '</b></div>'; }).join('') + '</div>' +
       (FT.carregando ? '<div class="fnota">Separando as fotos do HashData…</div>' : (!gs.length ? '<div class="fnota">Não achei fotos de lacre, contêiner, ordem de carga ou termógrafo neste HashData.</div>' : '')) +
-      gs.map(function (g) { var valor = multi(g.label) ? null : valorDe(g.label); return '<div class="fg"><div class="fl">' + esc(g.label) + (valor ? ' · digitado: <b class="fv">' + esc(valor) + '</b>' : '') + ' ' + seloOCR(g, valor) + '</div><div class="fimgs">' + g.imgs.map(function (im) { return '<a href="#" data-foto="' + im.url + '"><img src="' + im.url + '" alt=""></a>'; }).join('') + '</div></div>'; }).join('') +
+      gs.map(function (g) { var valor = multi(g.label) ? null : valorDe(g.label); return '<div class="fg"><div class="fl">' + esc(g.label) + (valor ? ' · digitado: <b class="fv">' + esc(valor) + '</b>' : '') + ' ' + seloOCR(g, valor) + (g.recorte ? ' <a href="#" class="frec" data-foto="' + g.recorte + '" title="Onde a ferramenta leu o número"><img src="' + g.recorte + '" alt="trecho lido"></a>' : '') + '</div><div class="fimgs">' + g.imgs.map(function (im) { return '<a href="#" data-foto="' + im.url + '"><img src="' + im.url + '" alt=""></a>'; }).join('') + '</div></div>'; }).join('') +
       (gs.length ? '<div class="fnota">' + nota + '</div>' : '');
     box.querySelectorAll('[data-foto]').forEach(function (a) { a.onclick = function (e) { e.preventDefault(); var ov = document.createElement('div'); ov.className = 'fover'; ov.innerHTML = '<img src="' + a.getAttribute('data-foto') + '">'; ov.onclick = function () { ov.remove(); }; document.body.appendChild(ov); }; });
   }

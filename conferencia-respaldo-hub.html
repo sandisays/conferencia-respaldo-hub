@@ -203,6 +203,7 @@
   #priv .dbody { padding:6px 20px 18px; font-size:14px; max-height:70vh; overflow:auto; }
   #priv h3 { font-size:15px; margin:14px 0 4px; } #priv ul { margin:4px 0; padding-left:20px; } #priv li { margin:3px 0; }
   @media print { dialog#priv { display:none !important; } }
+  .frec img { height:30px; vertical-align:middle; border-radius:4px; border:1px solid var(--line); margin-left:4px; }
 
 </style>
 </head>
@@ -266,7 +267,7 @@
       <li>Para imprimir, baixar a página ou o compilado, preencha o seu nome: ele vai na marca d'água junto com a data.</li>
     </ul>
   </div>
-  <footer><span id="versao">Conferência de respaldo do HUB · v2.17</span> · Desenvolvido por Sandi · <a href="#" id="abrePriv">Política de privacidade</a></footer>
+  <footer><span id="versao">Conferência de respaldo do HUB · v2.18</span> · Desenvolvido por Sandi · <a href="#" id="abrePriv">Política de privacidade</a></footer>
   <dialog id="priv" aria-labelledby="privT">
     <div class="dhead"><h2 id="privT">Política de privacidade</h2><button class="xrm" id="fechaPriv" title="Fechar" aria-label="Fechar">×</button></div>
     <div class="dbody">
@@ -788,9 +789,78 @@ else if (typeof exports === 'object')
     for (let i = 0; i < T; i++) { let mi = 0, mv = -1; for (let c = 0; c < C; c++) { const v = p[i * C + c]; if (v > mv) { mv = v; mi = c; } } if (mi !== 0 && mi !== prev) { txt += CHARS[mi] || ''; sc += mv; n++; } prev = mi; }
     return { text: txt.trim(), score: n ? sc / n : 0 };
   }
+  // Agrupa caracteres impressos em pé na mesma coluna e os recompõe em uma linha.
+  async function readStacked(source) {
+    const scale = Math.min(1, 1400 / Math.max(source.width, source.height));
+    const img = scale === 1 ? source : resize(source, Math.round(source.width*scale), Math.round(source.height*scale));
+    const W=img.width, H=img.height, stride=W+1, gray=new Uint8Array(W*H), sum=new Uint32Array(stride*(H+1));
+    for(let y=0;y<H;y++){
+      let row=0;
+      for(let x=0;x<W;x++){
+        const i=y*W+x, k=4*i;
+        gray[i]=(img.data[k]*77+img.data[k+1]*150+img.data[k+2]*29)>>8;
+        row+=gray[i]; sum[(y+1)*stride+x+1]=sum[y*stride+x+1]+row;
+      }
+    }
+    const radius=Math.max(8,Math.round(Math.min(W,H)/38)), mask=new Uint8Array(W*H);
+    for(let y=0;y<H;y++)for(let x=0;x<W;x++){
+      const l=Math.max(0,x-radius),r=Math.min(W,x+radius+1),t=Math.max(0,y-radius),b=Math.min(H,y+radius+1);
+      const mean=(sum[b*stride+r]-sum[t*stride+r]-sum[b*stride+l]+sum[t*stride+l])/((r-l)*(b-t));
+      mask[y*W+x]=gray[y*W+x]+30<mean;
+    }
+    const labels=new Int32Array(W*H), queue=new Int32Array(W*H), glyphs=[];
+    let id=0;
+    for(let i=0;i<mask.length;i++){
+      if(!mask[i]||labels[i])continue;
+      let head=0,tail=1,l=W,r=0,t=H,b=0;
+      labels[i]=++id;queue[0]=i;
+      while(head<tail){
+        const pos=queue[head++],y=Math.floor(pos/W),x=pos-y*W;
+        l=Math.min(l,x);r=Math.max(r,x);t=Math.min(t,y);b=Math.max(b,y);
+        for(let yy=Math.max(0,y-1);yy<=Math.min(H-1,y+1);yy++)
+          for(let xx=Math.max(0,x-1);xx<=Math.min(W-1,x+1);xx++){
+            const j=yy*W+xx;if(mask[j]&&!labels[j]){labels[j]=id;queue[tail++]=j;}
+          }
+      }
+      const h=b-t+1,w=r-l+1;
+      if(h>=9 && h<=H/7 && w>=2 && w<=h*1.15 && tail>=h && tail/(h*w)>.09)
+        glyphs.push({l,r,t,b,h,w,id,cx:(l+r)/2});
+    }
+    glyphs.sort((a,b)=>a.t-b.t);
+    for(let i=0;i<glyphs.length;i++){
+      const first=glyphs[i], col=[first];
+      for(let j=i+1;j<glyphs.length;j++){
+        const g=glyphs[j];
+        const prev=col[col.length-1], gap=g.t-prev.b;
+        if(gap>1.5*prev.h)break;
+        if(gap<=0 || g.h<first.h*.62 || g.h>first.h*1.45 || Math.abs(g.cx-prev.cx)>prev.h*.29)continue;
+        col.push(g);if(col.length===11)break;
+      }
+      if(col.length!==11)continue;
+      // Mantém apenas os pixels do caractere, inclusive dentro da moldura do dígito final.
+      for(const stretch of [1.45,1.9,1]){
+        const widths=col.map(g=>Math.max(3,Math.round(g.w/g.h*44*stretch)));
+        const width=widths.reduce((n,w)=>n+w+5,8),height=52,data=new Uint8ClampedArray(width*height*4).fill(255);
+        let left=4;
+        col.forEach((g,k)=>{
+          for(let y=0;y<44;y++)for(let x=0;x<widths[k];x++){
+            const at=(g.t+Math.floor(y*g.h/44))*W+g.l+Math.floor(x*g.w/widths[k]);
+            if(labels[at]===g.id){const dest=((y+4)*width+left+x)*4;data[dest]=data[dest+1]=data[dest+2]=0;}
+          }
+          left+=widths[k]+5;
+        });
+        const result=await rec({width,height,data});
+        const code=result.text.toUpperCase().replace(/[\s.-]/g,'');
+        if(result.score<.75 || !/^[A-Z]{3}[UJZ]\d{7}$/.test(code) || !isoOK(code))continue;
+        const l=Math.min(...col.map(g=>g.l)),r=Math.max(...col.map(g=>g.r)),b=col[10].b;
+        return [{text:code,score:result.score,cx:(l+r)/(2*scale),cy:(first.t+b)/(2*scale),w:(r-l+1)/scale,h:(b-first.t+1)/scale,ux:1,uy:0,sxr:1,syr:1,stacked:true}];
+      }
+    }
+    return [];
+  }
   async function read(img) {
     const boxes = await detect(img); const res = [];
-    for (const b of boxes) { let im = crop(img, b); if (im.width < 4 || im.height < 4) continue; im = await cls(im); const r = await rec(im); if (r.text && r.score >= 0.5) res.push(Object.assign(r, { cx: b.cx, cy: b.cy })); }
+    for (const b of boxes) { let im = crop(img, b); if (im.width < 4 || im.height < 4) continue; im = await cls(im); const r = await rec(im); if (r.text && r.score >= 0.5) res.push(Object.assign(r, b)); }
     return res;
   }
   // dígito verificador do contêiner (ISO 6346): depende das letras e dos números
@@ -816,7 +886,7 @@ else if (typeof exports === 'object')
     return { status: lidos.length ? 'diferente' : 'nada', alvo };
   }
   const rotate = (img, k) => { let r = img; for (let i = 0; i < ((k % 4) + 4) % 4; i++) r = rot90(r); return r; };
-  const api = { init, ready, read, confere, rotate, _detect: detect };
+  const api = { init, ready, read, readStacked, confere, rotate, _detect: detect };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.FotoOCR = api;
 })(typeof window !== 'undefined' ? window : globalThis);
 </script>
@@ -2025,13 +2095,44 @@ else if (typeof exports === 'object')
     desenhaFotos(); lerFotos();
   }
   var RANK = { ok: 5, numero: 4, iso: 3, quase: 2, diferente: 1, nada: 0 };
+  // recorte da foto em volta do código lido (contêiner ou placa), para mostrar onde a ferramenta leu
+  function recorteIdentificacao(px, itens, tipo) {
+    var padrao = tipo === 'placa' ? /^(?!SIF)[A-Z]{3}\d[A-Z0-9]\d{2}$/ : /^[A-Z]{3}[UJZ]\d{7}$/;
+    for (var i = 0; i < itens.length; i++) {
+      var codigo = '', caixas = [];
+      for (var j = i; j < Math.min(i + 4, itens.length); j++) {
+        var b = itens[j]; if (b.ux == null) break;
+        codigo += norm(b.text).replace(/[\s.-]/g, ''); if (codigo.length > 11) break;
+        if (caixas.length && (Math.abs(b.cy - itens[i].cy) > 2 * Math.max(b.h, itens[i].h) || Math.abs(b.cx - itens[j - 1].cx) > 2 * (b.w + itens[j - 1].w))) break;
+        caixas.push(b); if (!padrao.test(codigo)) continue;
+        var xs = [], ys = [];
+        caixas.forEach(function (c) { var dx = (Math.abs(c.ux) * c.w + Math.abs(c.uy) * c.h) * c.sxr / 2, dy = (Math.abs(c.uy) * c.w + Math.abs(c.ux) * c.h) * c.syr / 2; xs.push(c.cx - dx, c.cx + dx); ys.push(c.cy - dy, c.cy + dy); });
+        var mg = Math.max(8, Math.min(Math.max.apply(null, xs) - Math.min.apply(null, xs), Math.max.apply(null, ys) - Math.min.apply(null, ys)) * 0.7);
+        var x = Math.max(0, Math.floor(Math.min.apply(null, xs) - mg)), y = Math.max(0, Math.floor(Math.min.apply(null, ys) - mg));
+        var w = Math.min(px.width, Math.ceil(Math.max.apply(null, xs) + mg)) - x, h = Math.min(px.height, Math.ceil(Math.max.apply(null, ys) + mg)) - y;
+        if (!(w > 0 && h > 0)) continue;
+        var cv = document.createElement('canvas'); cv.width = w; cv.height = h; var ctx = cv.getContext('2d'), pix = ctx.createImageData(w, h);
+        for (var ln = 0; ln < h; ln++) { var ini = ((ln + y) * px.width + x) * 4; pix.data.set(px.data.subarray(ini, ini + w * 4), ln * w * 4); }
+        ctx.putImageData(pix, 0, 0); return cv.toDataURL('image/jpeg', 0.92);
+      }
+    }
+    return '';
+  }
   async function leGrupo(g, alvo, multiplo) {
-    var lidos = [], pausa = function () { return new Promise(function (r) { setTimeout(r, 10); }); };
-    var le = async function (im, k) { var key = im.id + (k ? ':r' + k : ''); if (!FT.cache[key]) { try { FT.cache[key] = await FotoOCR.read(k ? FotoOCR.rotate(im.px, k) : im.px); } catch (e) { FT.cache[key] = []; } } return FT.cache[key]; };
+    var lidos = [], porImg = {}, pausa = function () { return new Promise(function (r) { setTimeout(r, 10); }); };
+    var le = async function (im, k) { var key = im.id + (k ? ':r' + k : ''); if (!FT.cache[key]) { try { FT.cache[key] = await FotoOCR.read(k ? FotoOCR.rotate(im.px, k) : im.px); } catch (e) { FT.cache[key] = []; } } if (!k) porImg[im.id] = FT.cache[key]; return FT.cache[key]; };
     var bateu = function () { return multiplo ? alvo.every(function (a) { return FotoOCR.confere(lidos, a[1]).status === 'ok'; }) : FotoOCR.confere(lidos, alvo).status === 'ok'; };
     for (var im of g.imgs) { lidos = lidos.concat(await le(im, 0)); await pausa(); if (bateu()) break; }
     // se não bateu, tenta a foto girada (lacre fotografado de lado)
     for (var k of [1, 3]) { if (bateu()) break; for (var im2 of g.imgs) { lidos = lidos.concat(await le(im2, k)); await pausa(); } }
+    // contêiner escrito na vertical (letra embaixo de letra, na porta ou na lateral)
+    var cont = multiplo ? (alvo.find(function (a) { return a[0] === 'contêiner'; }) || [])[1] : (/cont[êe]iner|contentor|container/i.test(g.label) ? alvo : null);
+    if (cont && FotoOCR.readStacked && FotoOCR.confere(lidos, cont).status !== 'ok') {
+      for (var im3 of g.imgs) { var key = im3.id + ':vert'; if (!FT.cache[key]) { try { FT.cache[key] = await FotoOCR.readStacked(im3.px); } catch (e) { FT.cache[key] = []; } }
+        lidos = lidos.concat(FT.cache[key]); porImg[im3.id] = (porImg[im3.id] || []).concat(FT.cache[key]); await pausa(); if (FotoOCR.confere(lidos, cont).status === 'ok') break; }
+    }
+    // recorte de onde o contêiner foi lido
+    if (cont && FotoOCR.confere(lidos, cont).status === 'ok' && !g.recorte) for (var im4 of g.imgs) { if (porImg[im4.id] && (g.recorte = recorteIdentificacao(im4.px, porImg[im4.id], 'container'))) break; }
     return lidos;
   }
   async function lerFotos() {
@@ -2067,7 +2168,7 @@ else if (typeof exports === 'object')
     var nota = { pronto: 'Leitura automática ligada: a ferramenta lê o número na foto e compara com o digitado. Mesmo assim, dê uma olhada nas fotos.', carregando: 'Ligando a leitura automática das fotos…', erro: 'Não consegui ligar a leitura automática: ' + esc(FT.erro) + '. Confira as fotos no olho.' }[FT.estado] || 'Confira no olho se o número da foto é o mesmo que foi digitado. Clique na foto para ampliar.';
     box.innerHTML = '<h3 class="ft">Fotos do HashData: lacre, contêiner, ordem de carga e termógrafo</h3><div class="fvals">' + vals.map(function (x) { return '<div><span>' + esc(x[0]) + '</span><b>' + esc(x[1]) + '</b></div>'; }).join('') + '</div>' +
       (FT.carregando ? '<div class="fnota">Separando as fotos do HashData…</div>' : (!gs.length ? '<div class="fnota">Não achei fotos de lacre, contêiner, ordem de carga ou termógrafo neste HashData.</div>' : '')) +
-      gs.map(function (g) { var valor = multi(g.label) ? null : valorDe(g.label); return '<div class="fg"><div class="fl">' + esc(g.label) + (valor ? ' · digitado: <b class="fv">' + esc(valor) + '</b>' : '') + ' ' + seloOCR(g, valor) + '</div><div class="fimgs">' + g.imgs.map(function (im) { return '<a href="#" data-foto="' + im.url + '"><img src="' + im.url + '" alt=""></a>'; }).join('') + '</div></div>'; }).join('') +
+      gs.map(function (g) { var valor = multi(g.label) ? null : valorDe(g.label); return '<div class="fg"><div class="fl">' + esc(g.label) + (valor ? ' · digitado: <b class="fv">' + esc(valor) + '</b>' : '') + ' ' + seloOCR(g, valor) + (g.recorte ? ' <a href="#" class="frec" data-foto="' + g.recorte + '" title="Onde a ferramenta leu o número"><img src="' + g.recorte + '" alt="trecho lido"></a>' : '') + '</div><div class="fimgs">' + g.imgs.map(function (im) { return '<a href="#" data-foto="' + im.url + '"><img src="' + im.url + '" alt=""></a>'; }).join('') + '</div></div>'; }).join('') +
       (gs.length ? '<div class="fnota">' + nota + '</div>' : '');
     box.querySelectorAll('[data-foto]').forEach(function (a) { a.onclick = function (e) { e.preventDefault(); var ov = document.createElement('div'); ov.className = 'fover'; ov.innerHTML = '<img src="' + a.getAttribute('data-foto') + '">'; ov.onclick = function () { ov.remove(); }; document.body.appendChild(ov); }; });
   }

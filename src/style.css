@@ -192,3 +192,4 @@
   #priv .dbody { padding:6px 20px 18px; font-size:14px; max-height:70vh; overflow:auto; }
   #priv h3 { font-size:15px; margin:14px 0 4px; } #priv ul { margin:4px 0; padding-left:20px; } #priv li { margin:3px 0; }
   @media print { dialog#priv { display:none !important; } }
+  .frec img { height:30px; vertical-align:middle; border-radius:4px; border:1px solid var(--line); margin-left:4px; }

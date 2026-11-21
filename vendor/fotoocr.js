@@ -131,9 +131,78 @@
     for (let i = 0; i < T; i++) { let mi = 0, mv = -1; for (let c = 0; c < C; c++) { const v = p[i * C + c]; if (v > mv) { mv = v; mi = c; } } if (mi !== 0 && mi !== prev) { txt += CHARS[mi] || ''; sc += mv; n++; } prev = mi; }
     return { text: txt.trim(), score: n ? sc / n : 0 };
   }
+  // Agrupa caracteres impressos em pé na mesma coluna e os recompõe em uma linha.
+  async function readStacked(source) {
+    const scale = Math.min(1, 1400 / Math.max(source.width, source.height));
+    const img = scale === 1 ? source : resize(source, Math.round(source.width*scale), Math.round(source.height*scale));
+    const W=img.width, H=img.height, stride=W+1, gray=new Uint8Array(W*H), sum=new Uint32Array(stride*(H+1));
+    for(let y=0;y<H;y++){
+      let row=0;
+      for(let x=0;x<W;x++){
+        const i=y*W+x, k=4*i;
+        gray[i]=(img.data[k]*77+img.data[k+1]*150+img.data[k+2]*29)>>8;
+        row+=gray[i]; sum[(y+1)*stride+x+1]=sum[y*stride+x+1]+row;
+      }
+    }
+    const radius=Math.max(8,Math.round(Math.min(W,H)/38)), mask=new Uint8Array(W*H);
+    for(let y=0;y<H;y++)for(let x=0;x<W;x++){
+      const l=Math.max(0,x-radius),r=Math.min(W,x+radius+1),t=Math.max(0,y-radius),b=Math.min(H,y+radius+1);
+      const mean=(sum[b*stride+r]-sum[t*stride+r]-sum[b*stride+l]+sum[t*stride+l])/((r-l)*(b-t));
+      mask[y*W+x]=gray[y*W+x]+30<mean;
+    }
+    const labels=new Int32Array(W*H), queue=new Int32Array(W*H), glyphs=[];
+    let id=0;
+    for(let i=0;i<mask.length;i++){
+      if(!mask[i]||labels[i])continue;
+      let head=0,tail=1,l=W,r=0,t=H,b=0;
+      labels[i]=++id;queue[0]=i;
+      while(head<tail){
+        const pos=queue[head++],y=Math.floor(pos/W),x=pos-y*W;
+        l=Math.min(l,x);r=Math.max(r,x);t=Math.min(t,y);b=Math.max(b,y);
+        for(let yy=Math.max(0,y-1);yy<=Math.min(H-1,y+1);yy++)
+          for(let xx=Math.max(0,x-1);xx<=Math.min(W-1,x+1);xx++){
+            const j=yy*W+xx;if(mask[j]&&!labels[j]){labels[j]=id;queue[tail++]=j;}
+          }
+      }
+      const h=b-t+1,w=r-l+1;
+      if(h>=9 && h<=H/7 && w>=2 && w<=h*1.15 && tail>=h && tail/(h*w)>.09)
+        glyphs.push({l,r,t,b,h,w,id,cx:(l+r)/2});
+    }
+    glyphs.sort((a,b)=>a.t-b.t);
+    for(let i=0;i<glyphs.length;i++){
+      const first=glyphs[i], col=[first];
+      for(let j=i+1;j<glyphs.length;j++){
+        const g=glyphs[j];
+        const prev=col[col.length-1], gap=g.t-prev.b;
+        if(gap>1.5*prev.h)break;
+        if(gap<=0 || g.h<first.h*.62 || g.h>first.h*1.45 || Math.abs(g.cx-prev.cx)>prev.h*.29)continue;
+        col.push(g);if(col.length===11)break;
+      }
+      if(col.length!==11)continue;
+      // Mantém apenas os pixels do caractere, inclusive dentro da moldura do dígito final.
+      for(const stretch of [1.45,1.9,1]){
+        const widths=col.map(g=>Math.max(3,Math.round(g.w/g.h*44*stretch)));
+        const width=widths.reduce((n,w)=>n+w+5,8),height=52,data=new Uint8ClampedArray(width*height*4).fill(255);
+        let left=4;
+        col.forEach((g,k)=>{
+          for(let y=0;y<44;y++)for(let x=0;x<widths[k];x++){
+            const at=(g.t+Math.floor(y*g.h/44))*W+g.l+Math.floor(x*g.w/widths[k]);
+            if(labels[at]===g.id){const dest=((y+4)*width+left+x)*4;data[dest]=data[dest+1]=data[dest+2]=0;}
+          }
+          left+=widths[k]+5;
+        });
+        const result=await rec({width,height,data});
+        const code=result.text.toUpperCase().replace(/[\s.-]/g,'');
+        if(result.score<.75 || !/^[A-Z]{3}[UJZ]\d{7}$/.test(code) || !isoOK(code))continue;
+        const l=Math.min(...col.map(g=>g.l)),r=Math.max(...col.map(g=>g.r)),b=col[10].b;
+        return [{text:code,score:result.score,cx:(l+r)/(2*scale),cy:(first.t+b)/(2*scale),w:(r-l+1)/scale,h:(b-first.t+1)/scale,ux:1,uy:0,sxr:1,syr:1,stacked:true}];
+      }
+    }
+    return [];
+  }
   async function read(img) {
     const boxes = await detect(img); const res = [];
-    for (const b of boxes) { let im = crop(img, b); if (im.width < 4 || im.height < 4) continue; im = await cls(im); const r = await rec(im); if (r.text && r.score >= 0.5) res.push(Object.assign(r, { cx: b.cx, cy: b.cy })); }
+    for (const b of boxes) { let im = crop(img, b); if (im.width < 4 || im.height < 4) continue; im = await cls(im); const r = await rec(im); if (r.text && r.score >= 0.5) res.push(Object.assign(r, b)); }
     return res;
   }
   // dígito verificador do contêiner (ISO 6346): depende das letras e dos números
@@ -159,6 +228,6 @@
     return { status: lidos.length ? 'diferente' : 'nada', alvo };
   }
   const rotate = (img, k) => { let r = img; for (let i = 0; i < ((k % 4) + 4) % 4; i++) r = rot90(r); return r; };
-  const api = { init, ready, read, confere, rotate, _detect: detect };
+  const api = { init, ready, read, readStacked, confere, rotate, _detect: detect };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.FotoOCR = api;
 })(typeof window !== 'undefined' ? window : globalThis);
