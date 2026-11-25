@@ -287,7 +287,7 @@
       <li>Para imprimir, baixar a página ou o compilado, preencha o seu nome: ele vai na marca d'água junto com a data.</li>
     </ul>
   </div>
-  <footer><span id="versao">Conferência de respaldo do HUB · v2.19</span> · Desenvolvido por Sandi · <a href="#" id="abrePriv">Política de privacidade</a></footer>
+  <footer><span id="versao">Conferência de respaldo do HUB · v2.20</span> · Desenvolvido por Sandi · <a href="#" id="abrePriv">Política de privacidade</a></footer>
   <dialog id="priv" aria-labelledby="privT">
     <div class="dhead"><h2 id="privT">Política de privacidade</h2><button class="xrm" id="fechaPriv" title="Fechar" aria-label="Fechar">×</button></div>
     <div class="dbody">
@@ -1074,6 +1074,9 @@ else if (typeof exports === 'object')
     // HashData: o título pode quebrar a linha, o nome do usuário no topo muda ("Quali9", "Qualidade"...) e às vezes vem sem numeração.
     // Reconhece pelo conjunto de sinais do formulário, não por uma palavra só.
     var U1 = U.replace(/\s+/g, ' '), N1 = N.replace(/[_\s]+/g, ' ');
+    // PSCF: reconhece pelo conteúdo (o nome do arquivo pode ser só a O.C., ex.: 7643723.pdf)
+    var cab = U1.slice(0, 3000);
+    if (!/PERGUNTA\s+RESPOSTA/.test(U1) && (/PSCF\s*-?\s*7446/.test(cab) || /RELATORIO (DE )?ORDEM (DE )?CARREGAMENTO/.test(cab) || (/MODELO\s*:?\s*\d+\s*-\s*(DETALHADO|AGRUPADO)/.test(cab) && /O\.?C\.?\s*:/.test(cab)))) return 'pscf';
     if (/GUIA DE CARREGAMENTO DE MERCADORIAS|HASHDATA|PLAN_?CD_?ITJ_?036/.test(U1) || /GUIA DE CARREGAMENTO|HASHDATA|PLAN CD ITJ 036/.test(N1)) return 'hashdata';
     var SINAIS = [/PERGUNTA\s+RESPOSTA/, /CRIACAO NO DISPOSITIVO/, /RECEBIMENTO NO SERVIDOR/, /OC\.?\s*PSCF/, /N[°º]?\s*DO CONT(E|A)INER/, /LACRE SIF/, /TEMPERATURA INICIO/, /TEMPERATURA FIM/, /TERMOGRAFO/, /ORDEM DE CARGA/, /\b\d+\s+IMAGE(M|NS)\b/, /RESPONSAVEIS PELA AVALIACAO/, /INICIO DA VERIFICACAO DO VEICULO/, /FECHAMENTO DAS? PORTAS?/, /TIPO DE VEICULO/];
     if (!/CERTIFICADO SANITARIO|DECLARACAO DE PRODUTOS DE ORIGEM|RELATORIO DE CARGA|DANFE/.test(U1) && SINAIS.filter(function (r) { return r.test(U1); }).length >= 4) return 'hashdata';
@@ -1160,6 +1163,7 @@ else if (typeof exports === 'object')
   function parsePSCF(pages, pdf) {
     var R = { destino: '', ref: '', oc: '', mercado: '', lines: [], resumo: [], habil: {} }, sec = 'cab', prod = null, sif = null;
     var DET = /(?:([A-Z0-9][A-Z0-9.\/-]*\d[A-Z0-9.\/-]*)\s+)?(\d{2}\/\d{2}\/\d{4})\s+(\d{2}\/\d{2}\/\d{4})\s+(\d{2}\/\d{2}\/\d{4})\s+(\d{2}\/\d{2}\/\d{4})\s+(\d+)\s+(\d{6,10})\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)\s+(\d+)\s+(\d{3,4}\/\d{2,5})\s*(.*)$/;
+    var DET1 = /^\s*(?:(\d{5,8})\s+(\S.*?)\s+)?(\d{2}\/\d{2}\/\d{4})\s+(\d{2}\/\d{2}\/\d{4})\s+(\d{2}\/\d{2}\/\d{4})\s+(\d{2}\/\d{2}\/\d{4})\s+(\d+)\s+(\d{6,10})\s+(?:(\d+)\s+)?([\d.]+)\s+([\d.]+,\d{3})\s+([\d.]+,\d{3})\s*$/;
     var RES = /(\d{2}\/\d{2}\/\d{4})\s+(\d{2}\/\d{2}\/\d{4})\s+(\d+)\s+(\d{6,10})\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)\s*$/;
     pages.forEach(function (pg) { pg.lines.forEach(function (L, li) {
       var t = L.text, U = norm(t), m;
@@ -1175,13 +1179,21 @@ else if (typeof exports === 'object')
       if (/^HABILITACOES DA CARGA/.test(U)) { sec = 'hab'; return; }
       if (/^ITEM\s+NR\.?\s*SIF/.test(U) || /^ITEM\s+DESCRICAO/.test(U)) { if (sec === 'cab') sec = 'det'; return; }
       if (sec === 'res' && (m = /^(\d{5,8})\s+(.+?)\s+(\d{3,5})$/.exec(U))) { prod = { code: m[1], desc: t.replace(/^\s*\d+\s+/, '').replace(/\s+\d+\s*$/, '').trim() }; sif = m[3]; return; }
-      if ((m = /^(\d{5,8})\s+([A-Z][A-Z0-9 ().,\/-]{5,})$/.exec(U))) { prod = { code: m[1], desc: t.replace(/^\s*\d+\s+/, '').trim() }; if (sec === 'cab') sec = 'det'; return; }
+      if ((m = /^(\d{5,8})\s+([A-Z][A-Z0-9 ().,\/-]{5,})$/.exec(U)) && !/\d{2}\/\d{2}\/\d{4}/.test(U)) { prod = { code: m[1], desc: t.replace(/^\s*\d+\s+/, '').trim() }; if (sec === 'cab') sec = 'det'; return; }
       if ((m = /^NR\.?\s*SIF\s+(\d+)/.exec(U))) { sif = m[1]; return; }
       if (sec === 'res' && (m = /^(\d{3,5})(?:\s|$)/.exec(U)) && !/\//.test(U)) { sif = m[1]; }
       if (sec === 'res' && (m = /^(\d{5,8})\s+(.+?)\s+(\d{3,5})$/.exec(U))) { prod = { code: m[1], desc: t.replace(/^\s*\d+\s+/, '').replace(/\s+\d+\s*$/, '').trim() }; sif = m[3]; return; }
       if (sec === 'det' && (m = DET.exec(t))) {
         R.lines.push({ prod: prod, sif: sif, cert: m[1] ? m[1] : '', key: m[1] ? certKey(m[1]) : '', dtAbate: dmy(m[2]), dtProd: dmy(m[4]), dtVal: dmy(m[5]), turno: m[6], lote: m[7],
           vol: parseNum(m[8], pdf), pl: parseNum(m[9], pdf), pb: parseNum(m[10], pdf), nf: m[11], rotulo: m[12], marca: (m[13] || '').trim() });
+        return;
+      }
+      // Modelo 1 (Detalhado Item): sem certificado/SIF/NF/rótulo; o código e a descrição podem vir na mesma linha da 1ª data
+      if (sec === 'det' && (m = DET1.exec(t))) {
+        if (m[1]) prod = { code: m[1], desc: m[2].trim() };
+        R.modelo = 1;
+        R.lines.push({ prod: prod, sif: sif, cert: '', key: '', dtAbate: dmy(m[3]), dtProd: dmy(m[5]), dtVal: dmy(m[6]), turno: m[7], lote: m[8],
+          vol: parseNum(m[10], pdf), pl: parseNum(m[11], pdf), pb: parseNum(m[12], pdf), nf: '', rotulo: '', marca: '' });
         return;
       }
       if (sec === 'res' && (m = RES.exec(t))) { R.resumo.push({ prod: prod, sif: sif, dtProd: dmy(m[1]), lote: m[4], vol: parseNum(m[5], pdf), pl: parseNum(m[6], pdf) }); return; }
@@ -1738,7 +1750,12 @@ else if (typeof exports === 'object')
   /* ---------- conferência ---------- */
   function analyse() {
     var issues = [], seen = {}, add = function (k, t, d) { if (seen[k + t]) return; seen[k + t] = 1; issues.push({ k: k, t: t, d: d }); }, E = function (t, d) { add('err', t, d); }, W = function (t, d) { add('warn', t, d); };
-    var pscfF = files.find(function (f) { return f.type === 'pscf' && f.status === 'ok'; }), anxF = files.find(function (f) { return f.type === 'anexo4' && f.status === 'ok'; });
+    var pscfF = files.find(function (f) { return f.type === 'pscf' && f.status === 'ok'; });
+    if (!pscfF) { // sem PSCF reconhecido: procura um arquivo "outro" que tenha cara de PSCF (lotes no formato do 7446)
+      pscfF = files.find(function (f) { if (f.status !== 'ok' || f.type !== 'outro' || !f.pages) return false; try { return parsePSCF(f.pages, f.ext === 'pdf').lines.length >= 1; } catch (e) { return false; } });
+      if (pscfF) { pscfF.type = 'pscf'; prepare(pscfF); render(); }
+    }
+    var anxF = files.find(function (f) { return f.type === 'anexo4' && f.status === 'ok'; });
     var A0 = anxF ? parseAnexo(anxF.pages) : null, mudou = false;
     files.forEach(function (f) { if (f.type === 'sigsif' && f.sigx && A0 && ((f.sigx.ref && f.sigx.ref.replace(/\D/g, '') === (A0.sigsif || '').replace(/\D/g, '')) || (f.sigx.sif && f.sigx.sif === A0.sif))) { f.type = 'sigsifexp'; prepare(f); mudou = true; } });
     if (mudou) render();
@@ -1746,9 +1763,29 @@ else if (typeof exports === 'object')
     var EXP = { H: null, N: null, S: null, nf: [], croqui: [], fH: null };
     files.forEach(function (f) { if (f.status !== 'ok' || !f.extra) return; if (f.type === 'hashdata' && !EXP.H) { EXP.H = f.extra; EXP.fH = f; } if (f.type === 'dcpoanova' && !EXP.N) EXP.N = f.extra; if (f.type === 'sigsifexp' && !EXP.S) EXP.S = f.extra; if (f.type === 'nf') EXP.nf.push(f.extra); if (f.type === 'croqui') EXP.croqui.push(f.extra); });
     var out = $('out'); out.classList.remove('hide');
-    if (!pscfF) { out.innerHTML = '<div class="panel"><ul class="issues"><li class="err"><span class="w">Falta o relatório PSCF 7446.</span> Ele é a base da conferência (Excel ou PDF).</li></ul></div>'; return; }
+    if (!pscfF) { out.innerHTML = '<div class="panel"><ul class="issues"><li class="err"><span class="w">Falta o relatório PSCF 7446.</span> Ele é a base da conferência (Excel ou PDF), com qualquer nome de arquivo. Se ele já está na lista com outro tipo, troque o tipo para “Relatório PSCF 7446”.</li></ul></div>'; return; }
     var P = parsePSCF(pscfF.pages, pscfF.ext === 'pdf'), A = anxF ? parseAnexo(anxF.pages) : null;
-    if (!P.lines.length) E('Não consegui ler os lotes do relatório PSCF.', 'Confira se é o relatório 7446, modelo 4 (agrupado por data de produção).');
+    if (!P.lines.length) E('Não consegui ler os lotes do relatório PSCF.', 'Confira se é o relatório 7446 (modelo 1 ou 4).');
+    // Modelo 1 (e linhas sem certificado): descobre o SIF pelo Anexo IV e o respaldo pelo lote
+    if (P.lines.some(function (l) { return !l.key || !l.sif; })) {
+      var axLote = {}; if (A) A.prods.forEach(function (pr) { pr.lots.forEach(function (x) { axLote[x.lote] = axLote[x.lote] || { sif: x.sif || pr.sif, pr: pr }; }); });
+      P.lines.forEach(function (l) {
+        var ax = axLote[l.lote];
+        if (!l.key) {
+          var cand = resp.filter(function (f) { return f.key && f.parsed && f.parsed.rows.some(function (r) { return r.lots.has(l.lote); }); });
+          if (!cand.length) cand = resp.filter(function (f) { return f.key && f.parsed && f.parsed.allLots.has(l.lote); });
+          if (cand.length > 1 && ax) { var cx = cand.filter(function (f) { return ax.pr.certs.some(function (c) { return c.key === f.key; }); }); if (cx.length) cand = cx; }
+          if (cand.length) { l.cert = cand[0].numero; l.key = cand[0].key; l.viaLote = true; }
+          else if (ax && ax.pr.certs.length === 1) { l.cert = ax.pr.certs[0].num; l.key = ax.pr.certs[0].key; l.viaLote = true; }
+        }
+        if (!l.sif) {
+          if (ax && ax.sif) l.sif = ax.sif;
+          else if (l.key) { var d0 = resp.find(function (f) { return f.key === l.key; }), r0 = d0 && d0.parsed.rows.find(function (r) { return r.lots.has(l.lote) && r.sifs && r.sifs.length; }); if (r0) l.sif = r0.sifs[0]; else if (/\/(\d{2,5})\/\d{2}$/.test(l.cert || '')) l.sif = /\/(\d{2,5})\/\d{2}$/.exec(l.cert)[1]; }
+        }
+      });
+      var ag = {}; P.lines.forEach(function (l) { var k = l.sif + '|' + l.lote; ag[k] = ag[k] || { prod: l.prod, sif: l.sif, dtProd: l.dtProd, lote: l.lote, vol: 0, pl: 0 }; ag[k].vol += l.vol || 0; ag[k].pl += l.pl || 0; });
+      P.resumo = Object.keys(ag).map(function (k) { return ag[k]; });
+    }
     var destino = norm(P.destino || (A && A.destino) || '').trim();
     var lotRows = [], RG = {}, rgOf = function (l) { var d = l.prod ? l.prod.desc : ''; return RG[d] || (RG[d] = regra(P.destino || (A && A.destino) || '', d)); };
 
@@ -1764,7 +1801,9 @@ else if (typeof exports === 'object')
     var usedDocs = new Set();
     Object.keys(byCert).forEach(function (k) {
       var ls = byCert[k], cert = ls[0].cert, hab = P.habil[k];
-      if (!cert) { ls.forEach(function (l) { lotRows.push({ l: l, st: 'warn', msg: 'Sem certificado no PSCF' }); }); W('Lotes sem certificado no PSCF (SIF ' + ls[0].sif + ').', ls.map(function (l) { return l.lote; }).join(', ')); return; }
+      if (!cert) {
+        if (P.modelo === 1) { ls.forEach(function (l) { lotRows.push({ l: l, st: 'err', msg: 'Nenhum respaldo carregado tem este lote' }); }); E('Lotes do PSCF sem respaldo: nenhum CSN, CSI ou DCPOA carregado traz estes lotes.', Array.from(new Set(ls.map(function (l) { return l.lote; }))).join(', ')); return; }
+        ls.forEach(function (l) { lotRows.push({ l: l, st: 'warn', msg: 'Sem certificado no PSCF' }); }); W('Lotes sem certificado no PSCF' + (ls[0].sif ? ' (SIF ' + ls[0].sif + ')' : '') + '.', ls.map(function (l) { return l.lote; }).join(', ')); return; }
       var tipoPscf = tipoNum(cert), dg = String(cert).replace(/\D/g, '');
       if (!numPadrao(cert)) E(TYPES[tipoPscf] + ' com número fora do padrão no PSCF: ' + cert + '.', tipoPscf === 'dcpoa' ? 'Padrão: 000000/SIF/26.' : 'Padrão: ' + cert.slice(0, 2) + '-00000000/SIF/26 (ano com 2 dígitos).');
       dg = certKey(cert) || dg;
@@ -1773,7 +1812,7 @@ else if (typeof exports === 'object')
         (dg.length >= 6 ? resp.find(function (f) { return f.parsed && f.parsed.text.split(/\s+/).some(function (t) { var x = t.replace(/\D/g, ''); return x.length >= 6 && (x === dg || x.indexOf(dg) >= 0); }); }) : null);
       if (!doc) {
         if (hab && destino && hab.list.length) { var ch0 = checaHab(rgOf(ls[0]), hab.list, null, null); if (ch0.probs.length) E(cert + ' (habilitação no PSCF): ' + ch0.probs.join('; ') + '.', ''); }
-        E(TYPES[tipoPscf] + ' ' + cert + ' não foi carregado.', 'SIF ' + ls[0].sif + ' · NF ' + ls[0].nf + ' · lotes ' + ls.map(function (l) { return l.lote; }).join(', '));
+        E(TYPES[tipoPscf] + ' ' + cert + ' não foi carregado.', 'SIF ' + ls[0].sif + (ls[0].nf ? ' · NF ' + ls[0].nf : '') + ' · lotes ' + ls.map(function (l) { return l.lote; }).join(', '));
         ls.forEach(function (l) { lotRows.push({ l: l, st: 'err', msg: 'Documento não carregado' }); });
         return;
       }
@@ -1795,7 +1834,7 @@ else if (typeof exports === 'object')
           if (rots.length && rots.indexOf(l.rotulo) < 0) probs.push('rótulo ' + l.rotulo + ' não consta no ' + tipo + ' (rótulos do documento: ' + rots.join(', ') + ')'); }
         var h = habilOf(doc, row);
         if (row) {
-          if (row.rotulo) { if (row.rotulo !== l.rotulo) probs.push('rótulo ' + l.rotulo + ' no PSCF × ' + row.rotulo + ' no ' + tipo); }
+          if (row.rotulo) { if (l.rotulo && row.rotulo !== l.rotulo) probs.push('rótulo ' + l.rotulo + ' no PSCF × ' + row.rotulo + ' no ' + tipo); }
           else if (doc.type === 'csn') warns.push('rótulo não lido no ' + tipo); else noRot = true;
           if (l.prod && nameScore(l.prod.desc, row.name) < 0.75) warns.push('nome do produto diferente: "' + row.name + '"');
           var okDate = inDates(l.dtProd, row.dates); if (okDate === false) probs.push('data de produção ' + showD(l.dtProd) + ' fora das datas do item');
@@ -1814,7 +1853,7 @@ else if (typeof exports === 'object')
       });
       Object.keys(G).forEach(function (kk) { var g = G[kk], txt = TYPES[doc.type] + ' ' + cert + ': ' + g.msg + '.', det = (g.lots.length === ls.length && ls.length > 1 ? 'Todos os lotes deste documento' : (g.lots.length > 1 ? 'Lotes ' : 'Lote ') + g.lots.join(', '));
         (g.kind === 'err' ? E : W)(txt, det); });
-      if (noRot) W(cert + ': o ' + tipo + ' não traz rótulo.', 'Rótulo no PSCF: ' + Array.from(new Set(ls.map(function (l) { return l.rotulo; }))).join(', ') + '. Conferir por outra fonte se o destino exigir.');
+      if (noRot && ls.some(function (l) { return l.rotulo; })) W(cert + ': o ' + tipo + ' não traz rótulo.', 'Rótulo no PSCF: ' + Array.from(new Set(ls.map(function (l) { return l.rotulo; }))).join(', ') + '. Conferir por outra fonte se o destino exigir.');
       Object.keys(perRow).forEach(function (pk) {
         var x = perRow[pk], r = x.row;
         if (r.vol != null && x.vol > r.vol) Q(cert + ' · ' + r.label + ': o PSCF usa ' + fmtN(x.vol) + ' volumes, mais que os ' + fmtN(r.vol) + ' do documento.', qn);
@@ -1902,7 +1941,7 @@ else if (typeof exports === 'object')
     var COR = {}, nc = 0, cor = function (num) { var k = certKey(num); if (!k) return 'c0'; if (COR[k] == null) COR[k] = nc++ % 12; return 'c' + COR[k]; };
     lotRows.forEach(function (r) { if (r.l.cert) cor(r.l.cert); }); resp.forEach(function (f) { if (f.numero) cor(f.numero); });
     h += '<details class="blk"><summary><h3>Lotes do PSCF (' + lotRows.length + ')</h3></summary><div class="tw"><table><thead><tr><th></th><th>Documento</th><th>Lote</th><th class="n">Vol.</th><th class="n">Peso líq.</th><th>Rótulo</th><th>Item</th><th>Observação</th></tr></thead><tbody>' +
-      lotRows.map(function (r) { var l = r.l, tp = l.cert ? TYPES[r.doc ? r.doc.type : tipoNum(l.cert)] : ''; var rot = r.row && r.row.rotulo && r.row.rotulo !== l.rotulo ? l.rotulo + ' × ' + r.row.rotulo : l.rotulo;
+      lotRows.map(function (r) { var l = r.l, tp = l.cert ? TYPES[r.doc ? r.doc.type : tipoNum(l.cert)] : ''; var rot = r.row && r.row.rotulo && l.rotulo && r.row.rotulo !== l.rotulo ? l.rotulo + ' × ' + r.row.rotulo : (l.rotulo || (r.row && r.row.rotulo) || '');
         return '<tr class="' + (r.st === 'err' ? 'bad' : r.st === 'warn' ? 'wrn' : '') + '"><td>' + ic(r.st) + '</td><td class="mono">' + (l.cert ? '<span class="doc ' + cor(l.cert) + '"><span class="tag">' + esc(tp) + '</span> ' + esc(l.cert) + '</span>' : '—') + '</td><td class="mono">' + esc(l.lote) + '</td><td class="n">' + fmtN(l.vol) + '</td><td class="n">' + fmtN(l.pl, 3) + '</td><td class="mono">' + esc(rot) + '</td><td>' + esc(r.row ? r.row.label : '—') + '</td><td>' + esc(r.msg || '') + '</td></tr>'; }).join('') + '</tbody></table></div></details>';
 
     if (A) h += '<details class="blk"><summary><h3>PSCF × Anexo IV (por SIF e lote)</h3></summary><div class="tw"><table><thead><tr><th></th><th>SIF</th><th>Lote</th><th class="n">Vol. PSCF</th><th class="n">Vol. Anexo</th><th class="n">Peso líq. PSCF</th><th class="n">Peso líq. Anexo</th><th>Observação</th></tr></thead><tbody>' +
@@ -1974,9 +2013,13 @@ else if (typeof exports === 'object')
       if (N.finalidade && !/SOLICITACAO/.test(N.finalidade)) W('DCPOA emitida: a finalidade é "' + N.finalidade + '".', 'Para a exportação o esperado é Solicitação de Certificado Sanitário.');
       if (A && A.sif && N.sifExp && N.sifExp !== A.sif) E('DCPOA emitida pelo SIF ' + N.sifExp + ', mas a carga sai do SIF ' + A.sif + '.', '');
       var porRot = {}; P.lines.forEach(function (l) { (porRot[l.rotulo] = porRot[l.rotulo] || []).push(l); });
+      var semRot = P.lines.length && P.lines.every(function (l) { return !l.rotulo; }); // PSCF modelo 1: sem rótulo, casa pelo produto
       N.prods.forEach(function (pr) {
-        var ls = porRot[pr.rotulo], tag = 'DCPOA emitida, produto ' + pr.n + ' (' + (pr.rotulo || 'sem rótulo') + ')';
-        if (!ls) { E(tag + ': rótulo não está no PSCF.', 'Rótulos do PSCF: ' + Object.keys(porRot).join(', ')); return; }
+        var ls = porRot[pr.rotulo];
+        if (semRot) { var porProd = {}; P.lines.forEach(function (l) { var c = l.prod ? l.prod.code + '|' + l.prod.desc : '?'; (porProd[c] = porProd[c] || []).push(l); });
+          var ks = Object.keys(porProd); ls = ks.length === 1 ? porProd[ks[0]] : (ks.map(function (c) { return { c: c, s: nameScore(c.split('|')[1] || '', pr.nome) }; }).sort(function (a, b) { return b.s - a.s; }).filter(function (x) { return x.s >= 0.5; }).map(function (x) { return porProd[x.c]; })[0]); }
+        var tag = 'DCPOA emitida, produto ' + pr.n + ' (' + (pr.rotulo || 'sem rótulo') + ')';
+        if (!ls) { E(tag + (semRot ? ': produto não encontrado no PSCF.' : ': rótulo não está no PSCF.'), 'Rótulos do PSCF: ' + Object.keys(porRot).join(', ')); return; }
         var marcas = Array.from(new Set(ls.map(function (l) { return norm(l.marca); }).filter(Boolean)));
         if (pr.marca && marcas.length && marcas.indexOf(norm(pr.marca)) < 0) E(tag + ': marca ' + pr.marca + ' × ' + marcas.join(', ') + ' no PSCF.', '');
         var v = 0, pl = 0; ls.forEach(function (l) { v += l.vol || 0; pl += l.pl || 0; });
@@ -1994,7 +2037,7 @@ else if (typeof exports === 'object')
         var dpr = N.destinos[pr.n]; if (dpr && P.destino && cl(dpr).indexOf(cl(P.destino)) < 0) E(tag + ': destino ' + dpr + ', mas a carga vai para ' + P.destino + '.', '');
         var tp = N.temps[pr.n]; if (tp && t1.ini && (tp.ini !== t1.ini || tp.meio !== t1.meio || tp.fim !== t1.fim)) W(tag + ': temperaturas diferentes do produto 1.', '');
       });
-      Object.keys(porRot).forEach(function (r) { if (!N.prods.some(function (p) { return p.rotulo === r; })) E('DCPOA emitida não traz o rótulo ' + r + ', que está no PSCF.', ''); });
+      if (!semRot) Object.keys(porRot).forEach(function (r) { if (!N.prods.some(function (p) { return p.rotulo === r; })) E('DCPOA emitida não traz o rótulo ' + r + ', que está no PSCF.', ''); });
       if (A && A.numero) { var an = dig(A.numero.replace(/\(.*\)/, '')); if (!N.anexo4) W('DCPOA emitida não cita o Anexo IV nos documentos de respaldo.', 'Anexo IV: ' + A.numero); else if (dig(N.anexo4) !== an) E('DCPOA emitida cita o Anexo IV nº ' + N.anexo4 + ', mas o Anexo IV carregado é o ' + A.numero + '.', ''); }
       if (X.nf.length) X.nf.forEach(function (nf) { if (nf.numero && N.nfs.map(function (x) { return String(+x); }).indexOf(nf.numero) < 0) E('DCPOA emitida não cita a nota fiscal ' + nf.numero + '.', 'Notas citadas: ' + (N.nfs.join(', ') || 'nenhuma')); });
       else if (!N.nfs.length) W('DCPOA emitida não cita nota fiscal nos documentos de respaldo.', '');
