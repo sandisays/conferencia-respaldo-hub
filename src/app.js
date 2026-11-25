@@ -167,7 +167,7 @@
     if (/DECLARACAO DE PRODUTOS DE ORIGEM ANIMAL/.test(U)) return /FINALIDADE DA DCPOA\s*:\s*SOLICITACAO|SOLICITACAO DE CERTIFICADO SANITARIO/.test(U) ? 'dcpoanova' : 'dcpoa';
     if (/DETALHES DO DOCUMENTO DE TRANSITO/.test(U)) return 'sigsif';
     if (/DANFE|DOCUMENTO AUXILIAR DA NOTA FISCAL/.test(U)) return 'nf';
-    if (/CROQUI/.test(N) || (/ETIQUETA PRIMARIA|EMBALAGEM PRIMARIA/.test(U) && /ETIQUETA SECUNDARIA/.test(U))) return 'croqui';
+    if (/CROQUI/.test(N) || (/ETIQUETAS? PRIMARIAS?|EMBALAGENS? PRIMARIAS?/.test(U) && /ETIQUETAS? SECUNDARIAS?|EMBALAGENS? SECUNDARIAS?/.test(U))) return 'croqui';
     if (/ESTABELECIMENTO NACIONAL/.test(U) && /PRODUTOS HABILITADOS/.test(U)) return 'ficha';
     if (/PSCF\s*7446|ORDEM CARREGAMENTO/.test(U)) return 'pscf';
     if (/ANEXO IV/.test(U) && /RELATORIO DE CARGA/.test(U)) return 'anexo4';
@@ -447,17 +447,29 @@
     var ct = /CONTEINER\(ES\) E LACRE\s+(.+?)(?=\s+ESTABELECIMENTO SOLICITANTE|\s+CODIGO NCM)/.exec(F); S.contLacre = ct ? ct[1] : '';
     S.container = ((/([A-Z]{4}\s?\d{6}\s?-?\d)/.exec(S.contLacre) || [])[1] || '').replace(/[\s-]/g, ''); S.lacre = ((/(\d{3,8}\s*\/\s*SIF\s*\d{2,5})/.exec(S.contLacre) || [])[1] || '').replace(/\s/g, '');
     for (var n = 1; n <= 9; n++) {
-      var lt = new RegExp('LOTE E DATA DE PRODUCAO ' + n + '\\s+(?!\\()(.+?)(?=\\s+LOTE E DATA DE PRODUCAO)').exec(F); if (!lt || /^X+$/.test(lt[1].trim())) continue;
-      var num = function (rot) { var x = new RegExp(rot + ' ' + n + '\\s+([\\d.,X]+)').exec(F); return x ? x[1] : ''; };
-      S.prods.push({ n: n, lotes: lt[1].match(/\d{8}/g) || [], abate: num('ESTABELECIMENTO - ABATE'), proc: num('ESTABELECIMENTO - PROCESSADOR'), arm: num('ESTABELECIMENTO -\\s?ARMAZENADOR'), vol: parseNum(num('NUMERO DE EMBALAGENS'), true), peso: parseNum(num('PESO LIQUIDO \\(KG\\)'), true) });
+      var lt = new RegExp('LOTE E DATA DE PRODUCAO ' + n + '\\s+(?!\\()(.+?)(?=\\s+LOTE E DATA DE PRODUCAO)').exec(F);
+      var m25 = !lt && new RegExp('\\bLOTE ' + n + '\\s+(.+?)(?=\\s+DATA OU PERIODO|\\s+N[O°º]? DE REGISTRO|\\s+TIPO DE EMBALAGEM)').exec(F); // modelo 2025: "Lote 1  0110...;0810..."
+      if (m25) lt = m25;
+      if (!lt || /^X+$/.test(lt[1].trim())) continue;
+      // o valor pode vir depois do rótulo inteiro ("Peso líquido (Kg) 1  12.195,00") ou no meio dele ("Número de  813  Embalagens 1")
+      var num = function (rot, a, b) { var x = new RegExp(rot + ' ' + n + '\\s+([\\d.,X]+)').exec(F); if (x) return x[1];
+        if (a) { x = new RegExp(a + '\\s+([\\d.,]+|X+)\\s+' + b + ' ' + n + '\\b').exec(F); if (x) return x[1]; } return ''; };
+      S.prods.push({ n: n, lotes: lt[1].match(/\d{8}/g) || [], abate: num('ESTABELECIMENTO - ABATE', 'ESTABELECIMENTO -', 'ABATE'), proc: num('ESTABELECIMENTO - PROCESSADOR', 'ESTABELECIMENTO -', 'PROCESSADOR'), arm: num('ESTABELECIMENTO -\\s?ARMAZENADOR', 'ESTABELECIMENTO -', 'ARMAZENADOR'), vol: parseNum(num('NUMERO DE EMBALAGENS', 'NUMERO DE', 'EMBALAGENS'), true), peso: parseNum(num('PESO LIQUIDO \\(KG\\)'), true) });
     }
+    // modelo 2025 (rótulos quebrados em duas linhas)
+    if (!S.ref) S.ref = g(/REFERENCIA\s*:\s*(\d{6,8}\/\d{2,5}\/\d{4})/);
+    if (!S.modelo) S.modelo = g(/MODELO\s+DOCUMENTO\s+(\S+)\s+DE TRANSITO/);
+    if (!S.data) S.data = g(/DATA DE\s+CARREGAMENTO\s+(\d{2}\/\d{2}\/\d{4})/);
+    if (!S.container) S.container = g(/CONTAINER\s*:\s*([A-Z]{4}\s?\d{6}\s?-?\d)/).replace(/[\s-]/g, '');
+    if (!S.lacre) S.lacre = g(/(?:LACRE|SEAL)\s*(?:\/\s*SEAL)?\s*:\s*(\d{3,8}\s*\/\s*SIF\s*\d{2,5})/).replace(/\s/g, '');
+    if (!/CONTAINER|[A-Z]{4}\d{7}/.test(S.contLacre)) S.contLacre = [S.container, S.lacre].filter(Boolean).join(' · ');
     if ((m = /TOTAL DE PECAS\s+([\d.]+)/.exec(F))) S.totVol = parseNum(m[1], true);
     if ((m = /PESO LIQUIDO TOTAL\s+([\d.]+,\d{2,3})/.exec(F))) S.totPL = parseNum(m[1], true);
     S.parecer = g(/PARECER DE APROVACAO\s*:\s*([A-Z ]+?)(?=\s+DESCRICAO|$)/);
     return S;
   }
   function parseNF(pages, nome) { var F = plano(pages).replace(/\n/g, ' '), m = /N[º°O]\s*:?\s*(\d{3,9})\b/.exec(F) || /(\d{6,9})\.pdf$/i.exec(nome || '') || /\b(\d{6})\b/.exec(nome || ''); return { numero: m ? String(+m[1]) : '' }; }
-  function parseCroqui(pages, nome) { var m = /(?:CROQUI[_ -]*)(\d{4})/i.exec(nome || '') || /\b(\d{4})\s*\/\s*\d{3,5}\b/.exec(plano(pages)); return { rotulo: m ? m[1] : '' }; }
+  function parseCroqui(pages, nome) { var m = /(?:CROQUI[_ -]*)(\d{4})/i.exec(nome || '') || /^(\d{4})[-_ ]\d{2,5}(?:\.\w+)?$/.exec(nome || '') || /\b(\d{4})\s*\/\s*\d{3,5}\b/.exec(plano(pages)); return { rotulo: m ? m[1] : '' }; }
 
   /* ---------- documentos de respaldo ---------- */
   function findDestField(pages) {
@@ -910,8 +922,12 @@
       ls.forEach(function (l) {
         var rows = D.rows.filter(function (r) { return r.lots.has(l.lote); }), row = null, probs = [], warns = [];
         if (rows.length) {
-          rows.forEach(function (r) { r._s = nameScore(l.prod ? l.prod.desc : '', r.name) + (r.rotulo && r.rotulo === l.rotulo ? 1 : 0); });
-          row = rows.sort(function (a, b) { return b._s - a._s; })[0];
+          // mesmo produto em dois itens (ex.: validade 10/2027 e 10/2028): escolhe pelo nome, rótulo, validade, data e saldo de volumes
+          rows.forEach(function (r) { var u = (perRow[r.label] || { vol: 0 }).vol;
+            r._s = nameScore(l.prod ? l.prod.desc : '', r.name) + (r.rotulo && r.rotulo === l.rotulo ? 1 : 0) +
+              (l.dtVal && r.dates.months.size ? (r.dates.months.has(l.dtVal.slice(0, 7)) ? 2 : -1) : 0) +
+              (inDates(l.dtProd, r.dates) === true ? 0.5 : 0) + (r.vol != null && l.vol != null ? (u + l.vol <= r.vol ? 0.5 : -0.5) : 0); });
+          row = rows.slice().sort(function (a, b) { return b._s - a._s; })[0];
         } else if (D.allLots.has(l.lote)) warns.push('lote aparece no documento, mas fora da tabela de produtos');
         else probs.push('lote não consta no ' + tipo);
         if (!rows.length && l.rotulo) { var rots = Array.from(new Set(D.rows.map(function (r) { return r.rotulo; }).filter(Boolean)));
@@ -1069,7 +1085,7 @@
       { c: 'Destino', n: 'dest', v: { p: P.destino, a: A && A.destino, h: H && H.destino, n: destN } },
       { c: 'Container', n: 'txt', v: { p: P.container, h: H && H.container, n: N && N.contentor, s: S && S.container } },
       { c: 'Lacre SIF', n: 'txt', v: { p: P.lacre, h: H && H.lacre, n: N && N.lacre, s: S && S.lacre } },
-      { c: 'Data do carregamento', n: 'd', v: { p: P.dtCarreg, h: H && H.ini.d, n: N && N.iniData, s: S && S.data } },
+      { c: 'Data do carregamento', n: 'd', v: { p: P.dtCarreg, h: H && H.ini.d, n: N && N.iniData, s: S && S.data }, nc: (S && S.data && P.dtFim && ano4(S.data) === ano4(P.dtFim) && ano4(S.data) !== ano4(P.dtCarreg || '')) ? ['s'] : null },
       { c: 'Verificação do veículo', n: 'txt', v: { h: H && (H.verif.d + ' ' + H.verif.h).trim(), n: N && ((N.verifData || '') + ' ' + (N.verifHora || '')).trim() } },
       { c: 'Início do carregamento', n: 'txt', nc: ['p'], v: { p: P.hrIni, h: H && H.ini.h, n: N && N.iniHora } },
       { c: 'Fim do carregamento', n: 'txt', nc: ['p'], v: { p: P.hrFim, h: H && H.fim.h, n: N && N.fimHora } },
@@ -1082,6 +1098,7 @@
       { c: 'Nº da DCPOA emitida', n: 'txt', v: { n: N && N.numero, s: S && S.dcpoa } },
       { c: 'Referência SIGSIF', n: 'num', v: { a: A && A.sigsif, s: S && S.ref } }
     ];
+    if (S && S.data && P.dtFim && ano4(S.data) === ano4(P.dtFim) && ano4(S.data) !== ano4(P.dtCarreg || '')) W('SIGSIF traz como data de carregamento ' + ano4(S.data) + ', que é o dia do fim do carregamento.', 'Início: ' + (P.dtCarreg || '') + (P.hrIni ? ' ' + P.hrIni : '') + ' · fim: ' + P.dtFim + (P.hrFim ? ' ' + P.hrFim : '') + '. Confirme qual data deve constar.');
     var tem = {}; cols.forEach(function (c) { tem[c.k] = 1; });
     R.forEach(function (r) {
       Object.keys(r.v).forEach(function (k) { if (!tem[k]) delete r.v[k]; });
@@ -1366,8 +1383,10 @@
       try {
         var z = new JSZip(), base = nomeBase(), usados = {};
         z.file(base + '.html', paginaHtml());
-        var PASTA = { pscf: 'PSCF', anexo4: 'Anexo IV', hashdata: 'HashData', dcpoanova: 'DCPOA emitida', sigsifexp: 'SIGSIF da exportacao', nf: 'Nota fiscal', croqui: 'Croqui', ficha: 'Ficha do SIF' }, pasta = function (f) { return PASTA[f.type] || (isResp(f.type) ? 'Respaldos' : 'Outros'); };
-        files.forEach(function (f) { if (!f.file) return; var n = pasta(f) + '/' + f.name, k = 1; while (usados[n]) n = pasta(f) + '/' + f.name.replace(/(\.[^.]+)?$/, ' (' + (++k) + ')$1'); usados[n] = 1; z.file(n, f.file); });
+        // arquivos soltos na raiz do .zip, cada um com o próprio nome (sem pastas)
+        usados[(base + '.html').toLowerCase()] = 1;
+        files.forEach(function (f) { if (!f.file) return; var nm = f.name.replace(/[º°]/g, 'o').replace(/ª/g, 'a').replace(/[\\/:*?"<>|]/g, '-'), n = nm, k = 1;
+          while (usados[n.toLowerCase()]) n = nm.replace(/(\.[^.]+)?$/, ' (' + (++k) + ')$1'); usados[n.toLowerCase()] = 1; z.file(n, f.file); });
         baixar(await z.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } }), base + '.zip');
       } catch (e) { alertaPasta('err', 'Não consegui montar o compilado: ' + (e && e.message || e)); }
       b.disabled = false; b.textContent = t;
