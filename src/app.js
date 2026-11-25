@@ -1004,7 +1004,52 @@
     paint(P, A, issues, lotRows, axRows, resp, RG, GRADE, EXP);
   }
 
+  /* ---------- "não é erro": exceções guardadas neste navegador ---------- */
+  var NE = []; try { NE = JSON.parse(localStorage.getItem('hub-naoerro') || '[]') || []; } catch (e) { NE = []; }
+  var salvaNE = function () { try { localStorage.setItem('hub-naoerro', JSON.stringify(NE)); } catch (e) {} };
+  // assinatura do aviso: o título como está + a explicação com os números trocados por #
+  var assinNE = function (i) { return norm(i.t).replace(/\s+/g, ' ').trim() + '|' + norm(i.d || '').replace(/\d[\d.,\/:-]*/g, '#').replace(/\s+/g, ' ').trim().slice(0, 300); };
+  var escopoTxt = function (e) { return e.escopo === '*' ? 'vale para todas as cargas' : /^sif:/.test(e.escopo) ? 'vale para as cargas do SIF ' + e.escopo.slice(4) : 'vale só para a O.C. ' + e.escopo.slice(3); };
+  function aplicaNE(issues, lotRows, ctx) {
+    issues.forEach(function (i) { var a = assinNE(i); i.ex = NE.find(function (e) { return e.assin === a && (e.escopo === '*' || e.escopo === 'oc:' + ctx.oc || (/^sif:/.test(e.escopo) && ctx.sifs.indexOf(e.escopo.slice(4)) >= 0)); }) || null; });
+    var exT = issues.filter(function (i) { return i.ex; }).map(function (i) { return i.t; });
+    if (!exT.length) return;
+    lotRows.forEach(function (r) { if (!r.msg || !r.l.cert || r.st === 'ok') return;
+      var parts = r.msg.split('; '), resta = parts.filter(function (pt) { return !exT.some(function (t) { return t.indexOf(r.l.cert + ': ' + pt) >= 0; }); });
+      if (resta.length < parts.length) { r.msg = resta.join('; ') + (resta.length ? '' : 'marcado como não é erro'); if (!resta.length) r.st = 'ok'; } });
+  }
+  function ligaNE(issues, ctx) {
+    var out = $('out');
+    Array.prototype.forEach.call(out.querySelectorAll('button[data-ne]'), function (btn) { btn.onclick = function () {
+      var i = issues[+btn.dataset.ne]; if (!i || (btn.nextElementSibling && btn.nextElementSibling.classList.contains('ne-form'))) return;
+      var quem0 = ''; try { quem0 = localStorage.getItem('hub-nome') || ''; } catch (e) {}
+      var f = document.createElement('div'); f.className = 'ne-form noprint';
+      f.innerHTML = '<select>' + (ctx.oc ? '<option value="oc:' + esc(ctx.oc) + '">só nesta carga (O.C. ' + esc(ctx.oc) + ')</option>' : '') +
+        ctx.sifs.map(function (x) { return '<option value="sif:' + esc(x) + '">para as cargas do SIF ' + esc(x) + '</option>'; }).join('') + '<option value="*">para todas as cargas</option></select>' +
+        '<input type="text" class="ne-mot" placeholder="Por que não é erro? (fica registrado)"><input type="text" class="ne-quem" placeholder="Seu nome" value="' + esc(quem0) + '">' +
+        '<button class="btn" type="button">Salvar</button><button class="btn ghost" type="button">Cancelar</button>';
+      btn.after(f); var sel = f.querySelector('select'), mot = f.querySelector('.ne-mot'), quem = f.querySelector('.ne-quem'), bs = f.querySelectorAll('button'); mot.focus();
+      bs[1].onclick = function () { f.remove(); };
+      bs[0].onclick = function () { if (!mot.value.trim()) { mot.focus(); mot.classList.add('falta'); return; }
+        NE.push({ assin: assinNE(i), escopo: sel.value, titulo: i.t, motivo: mot.value.trim(), quem: quem.value.trim(), quando: new Date().toLocaleDateString('pt-BR') });
+        if (quem.value.trim()) try { localStorage.setItem('hub-nome', quem.value.trim()); } catch (e) {}
+        salvaNE(); analyse(); };
+    }; });
+    Array.prototype.forEach.call(out.querySelectorAll('button[data-nedel]'), function (b) { b.onclick = function () { var k = +b.dataset.nedel; if (!confirm('Remover esta exceção? O aviso volta a aparecer.')) return; NE.splice(k, 1); salvaNE(); analyse(); }; });
+    var ex = $('neExp'), im = $('neImp'), inp = $('neIn');
+    if (ex) ex.onclick = function () { baixar(new Blob([JSON.stringify({ tipo: 'hub-nao-e-erro', versao: 1, gerado: new Date().toISOString(), excecoes: NE }, null, 1)], { type: 'application/json' }), 'nao-e-erro-hub-' + new Date().toISOString().slice(0, 10) + '.json'); };
+    if (im && inp) { im.onclick = function () { inp.click(); }; inp.onchange = async function () { var n = 0;
+      try { var j = JSON.parse(await inp.files[0].text()); if (!j || j.tipo !== 'hub-nao-e-erro') throw 0;
+        (j.excecoes || []).forEach(function (e) { if (e && e.assin && !NE.some(function (x) { return x.assin === e.assin && x.escopo === e.escopo; })) { NE.push(e); n++; } });
+        salvaNE(); ULT = { k: 'ok', t: n + ' exceção(ões) "não é erro" importada(s).' }; analyse(); }
+      catch (e) { ULT = { k: 'err', t: 'Esse arquivo não é uma lista de exceções da conferência HUB.' }; analyse(); } }; }
+  }
+
   function paint(P, A, issues, lotRows, axRows, resp, RG, GRADE, EXP) {
+    var NEctx = { oc: ((/LCAT\D{0,5}(\d{5,9})/i.exec(P.ref || '') || /(\d{6,9})/.exec(P.ref || '') || [])[1]) || (A && A.embarque) || '',
+      sifs: Array.from(new Set(P.lines.map(function (l) { return l.sif; }).concat(A ? A.prods.map(function (p) { return p.sif; }) : []).filter(Boolean))) };
+    aplicaNE(issues, lotRows, NEctx);
+    var marc = issues.filter(function (i) { return i.ex; }), todas = issues; issues = issues.filter(function (i) { return !i.ex; });
     var nE = issues.filter(function (i) { return i.k === 'err'; }).length, nW = issues.length - nE;
     var nOk = lotRows.filter(function (r) { return r.st === 'ok'; }).length;
     var h = (ULT ? '<div class="pmsg noprint ' + (ULT.k === 'ok' ? 'ok' : '') + '" style="margin-bottom:12px">' + esc(ULT.t) + (ULT.d ? '<small>' + esc(ULT.d) + '</small>' : '') + '</div>' : '') + '<div class="sum">'; ULT = null;
@@ -1029,12 +1074,18 @@
     if (errs.length) h += '<h2>Divergências</h2><ul class="issues">' + errs.map(li).join('') + '</ul>';
     if (issues.some(function (i) { return /não foi carregado\.$/.test(i.t); })) h += '<div class="row noprint" style="margin-top:10px"><span class="sub">Faltam respaldos? A ferramenta procura pelo número no nome do arquivo, traz para a lista e confere de novo.</span><div><button class="btn ghost" id="pasta2">Buscar os que faltam na pasta</button></div></div><div class="sub noprint" style="margin-top:4px;text-align:right;font-size:12.5px">ou arraste a pasta do Explorador de Arquivos para esta página</div><div id="pastaMsg2" class="pmsg noprint hide"></div>';
     if (wrs.length) h += '<h2 style="margin-top:16px">Avisos</h2><ul class="issues">' + wrs.map(li).join('') + '</ul>';
+    if (marc.length) h += '<h2 style="margin-top:16px">Marcados como não é erro</h2><ul class="issues">' + marc.map(function (i) { var e = i.ex;
+      return '<li class="ne"><span class="w">✓</span>' + esc(i.t) + (i.d ? '<small>' + esc(i.d) + '</small>' : '') + '<small class="nemot">“' + esc(e.motivo) + '” · ' + esc(e.quem || 'sem nome') + ', ' + esc(e.quando) + ' · ' + esc(escopoTxt(e)) + '</small>' +
+        '<button class="naoerro noprint" type="button" data-nedel="' + NE.indexOf(e) + '">desfazer</button></li>'; }).join('') + '</ul>';
     var nomeSalvo = ''; try { nomeSalvo = localStorage.getItem('hub-nome') || ''; } catch (e) {}
     h += '<div class="tools"><label class="nome">Conferido por <input id="nome" placeholder="seu nome" value="' + esc(nomeSalvo) + '" autocomplete="name"></label>' +
       '<button class="btn ghost" id="expAll">Expandir tudo</button><button class="btn ghost" id="colAll">Recolher tudo</button>' +
       '<button class="btn ghost" id="prt">Imprimir / salvar PDF</button><button class="btn ghost" id="dlPage">Baixar página</button><button class="btn" id="dlZip">Baixar compilado (.zip)</button>' +
-      '<div class="aviso hide" id="nomeAviso">Preencha o seu nome: ele vai na marca d\'água.</div></div></div>';
-    function li(i) { return '<li class="' + i.k + '"><span class="w">' + (i.k === 'err' ? '✕' : '!') + '</span>' + esc(i.t) + (i.d ? '<small>' + esc(i.d) + '</small>' : '') + '</li>'; }
+      '<div class="aviso hide" id="nomeAviso">Preencha o seu nome: ele vai na marca d\'água.</div>' +
+      '<div class="nebar noprint">Exceções “não é erro” guardadas neste navegador: <b>' + NE.length + '</b>' + (NE.length ? ' <button class="btn link" id="neExp" type="button">exportar para a equipe</button>' : '') +
+      ' <button class="btn link" id="neImp" type="button">importar</button><input type="file" id="neIn" accept=".json,application/json" class="hide"></div></div></div>';
+    function li(i) { return '<li class="' + i.k + '"><span class="w">' + (i.k === 'err' ? '✕' : '!') + '</span>' + esc(i.t) + (i.d ? '<small>' + esc(i.d) + '</small>' : '') +
+      '<button class="naoerro noprint" type="button" data-ne="' + todas.indexOf(i) + '" title="Ensinar a ferramenta que isto não é erro">não é erro</button></li>'; }
     function ic(st) { return '<span class="ico ' + st + '">' + (st === 'ok' ? '✓' : st === 'err' ? '✕' : '!') + '</span>'; }
 
     if (GRADE && GRADE.rows.length) h += blocoExportacao(GRADE, EXP);
@@ -1059,7 +1110,7 @@
     });
     if (resp.length) h += '</div></details>';
     h += '<div class="wm" aria-hidden="true"><div></div></div>';
-    $('out').innerHTML = h; ligaFerramentas(); ligaFotos(EXP); var p2 = $('pasta2'); if (p2) p2.onclick = function () { $('pastaMsg2').classList.remove('hide'); buscaPasta(false); };
+    $('out').innerHTML = h; ligaFerramentas(); ligaNE(todas, NEctx); ligaFotos(EXP); var p2 = $('pasta2'); if (p2) p2.onclick = function () { $('pastaMsg2').classList.remove('hide'); buscaPasta(false); };
     $('out').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 

@@ -202,3 +202,16 @@
   @media (max-width:760px) { .extcampos { grid-template-columns:1fr; } }
   #extMsg { margin-top:10px; }
   @media print { .extbox { display:none !important; } }
+
+/* "não é erro" */
+.naoerro { font:inherit; font-size:12px; margin-top:6px; padding:3px 10px; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--mute); cursor:pointer; display:block; }
+.naoerro:hover { color:var(--ink); background:var(--accbg); }
+.ne-form { margin-top:8px; display:flex; flex-wrap:wrap; gap:8px; align-items:center; font-size:13px; }
+.ne-form select, .ne-form input { font:inherit; font-size:13px; padding:6px 10px; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--ink); }
+.ne-form .ne-mot { flex:1; min-width:240px; } .ne-form .ne-quem { width:150px; } .ne-form input.falta { border-color:var(--err); }
+.issues li.ne { background:var(--okbg); border-color:var(--ok); } .issues li.ne .w { color:var(--ok); }
+.issues li .nemot { color:var(--ok); font-style:italic; }
+.nebar { width:100%; font-size:13px; color:var(--mute); text-align:right; }
+.nebar .btn.link { font-size:13px; padding:2px 4px; }
+body.snap .noprint { display:none !important; }
+@media print { .naoerro, .ne-form, .nebar { display:none !important; } }
