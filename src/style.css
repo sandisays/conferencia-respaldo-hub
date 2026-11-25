@@ -193,3 +193,12 @@
   #priv h3 { font-size:15px; margin:14px 0 4px; } #priv ul { margin:4px 0; padding-left:20px; } #priv li { margin:3px 0; }
   @media print { dialog#priv { display:none !important; } }
   .frec img { height:30px; vertical-align:middle; border-radius:4px; border:1px solid var(--line); margin-left:4px; }
+  /* busca pela extensão Conferência CCS */
+  .extbox { margin-top:14px; padding:12px 14px; border:1px solid var(--line); border-radius:14px; background:var(--soft); }
+  .exth { margin-bottom:8px; } .exth .sub { font-size:12.5px; }
+  .extbox textarea, .extbox input { font:inherit; font-size:14px; padding:7px 10px; border-radius:10px; border:1px solid var(--line); background:var(--card); color:var(--ink); }
+  .extbox textarea { width:100%; box-sizing:border-box; resize:vertical; margin-bottom:8px; }
+  .extcampos { display:grid; grid-template-columns:120px 1fr 1fr auto; gap:8px; }
+  @media (max-width:760px) { .extcampos { grid-template-columns:1fr; } }
+  #extMsg { margin-top:10px; }
+  @media print { .extbox { display:none !important; } }

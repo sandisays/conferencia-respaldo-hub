@@ -758,6 +758,7 @@
   /* ---------- estado e lista ---------- */
   var files = [], seq = 0;
   function render() {
+    try { if (EXT && EXT.ok) extPreenche(); } catch (e) {}
     var ul = $('flist'); ul.innerHTML = '';
     files.forEach(function (f) {
       var li = document.createElement('li'); li.setAttribute('data-k', f.ext === 'xlsx' ? 'XLSX' : f.ext === 'img' ? 'FOTO' : 'PDF'); if (f.ext === 'xlsx') li.className = 'xls'; if (f.ext === 'img') li.className = 'img';
@@ -1486,6 +1487,46 @@
   $('pastaIn').addEventListener('cancel', function () { alertaPasta('warn', 'Nenhuma pasta chegou à ferramenta.', 'Se você escolheu a pasta, tente arrastá-la do Explorador de Arquivos para cá.'); });
   Promise.race([lembrada(), new Promise(function (ok) { setTimeout(function () { ok(null); }, 2500); })]).then(function (h) { if (h && h.kind === 'directory') { PASTA_H = h; mostraUltima(); } });
   document.addEventListener('click', function (e) { var b = e.target.closest && e.target.closest('[data-alt]'); if (b) modoAlt(); });
+
+  /* ---------- extensão Conferência CCS: busca no SIGSIF e na DCPOA (só consulta, com o login do Chrome) ---------- */
+  var EXT = { ok: false, rodando: false };
+  function extMsg(k, t, d, busy) { var m = $('extMsg'); m.className = 'pmsg ' + (k || '') + (busy ? ' busy' : ''); m.innerHTML = esc(t) + (d ? '<small>' + esc(d) + '</small>' : '') + (busy ? '<div class="pbar"><i></i></div>' : ''); }
+  var fmtT = function (ms) { var s = Math.max(1, Math.round(ms / 1000)); if (s < 60) return s + ' s'; var m = Math.floor(s / 60), r = s % 60; return m + ' min' + (r ? ' ' + String(r).padStart(2, '0') + ' s' : ''); };
+  function extLiga(v) { if (EXT.ok) return; EXT.ok = true; $('ext').classList.remove('hide'); $('extVer').textContent = v ? '(' + v + ')' : ''; extPreenche(); }
+  // com o Anexo IV na lista, a Ref. SIGSIF (item 9.1) e a O.C. de exportação já vêm preenchidas
+  function extPreenche() {
+    if (!EXT.ok) return; var af = files.find(function (f) { return f.type === 'anexo4' && f.status === 'ok'; }); if (!af) return;
+    var A = parseAnexo(af.pages);
+    if (A.sigsif && !$('extRef').value) $('extRef').value = A.sigsif;
+    if (A.embarque && !$('extOc').value) $('extOc').value = A.embarque;
+  }
+  window.addEventListener('message', function (ev) {
+    var m = ev.data; if (ev.source !== window || !m || !m.__confCcsResp) return;
+    if (m.__confCcsResp === 'pronta') extLiga(m.versao);
+    if (m.__confCcsResp === 'status') { extLiga(); extMsg(m.erro ? 'err' : '', m.msg || '', m.falta ? 'Falta cerca de ' + fmtT(m.falta) + '.' : '', !m.erro && !m.fim); if (m.erro || m.fim) { EXT.rodando = false; $('extBuscar').disabled = false; } }
+    if (m.__confCcsResp === 'arquivos') {
+      var lst = [];
+      (m.arquivos || []).forEach(function (a) { try { if (!a || !a.b64 || !a.nome) return; var bin = atob(a.b64), u = new Uint8Array(bin.length); for (var i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+        var nome = String(a.nome).replace(/[\\/:*?"<>|]+/g, '-').slice(0, 120); if (!/\.(pdf|xlsx|xlsm|jpe?g|png)$/i.test(nome)) nome += /pdf/.test(a.mime || '') ? '.pdf' : '';
+        lst.push(new File([u], nome, { type: a.mime || 'application/pdf' })); } catch (e) {} });
+      EXT.rodando = false; $('extBuscar').disabled = false;
+      var av = (m.avisos || []).join(' · ');
+      if (!lst.length) { extMsg('err', 'A extensão não trouxe arquivos da O.C. ' + (m.oc || '') + '.', av); return; }
+      extMsg(av ? '' : 'ok', 'Chegaram ' + lst.length + ' arquivo(s) da O.C. ' + (m.oc || '') + ': ' + lst.map(function (f) { return f.name; }).join(', ') + '.',
+        (av ? 'Avisos: ' + av + '. ' : '') + 'Os CSN e as DCPOAs de trânsito da carga vêm da busca na pasta.');
+      var jaConferiu = !$('out').classList.contains('hide');
+      addFiles(lst);
+      queue.then(function () { extPreenche(); if (jaConferiu) $('run').click(); });
+    }
+  });
+  if (document.documentElement.getAttribute('data-conf-ext')) extLiga(document.documentElement.getAttribute('data-conf-ext'));
+  $('extBuscar').onclick = function () {
+    var texto = $('extLinhas').value.trim(), oc = $('extOc').value.trim(), ref = $('extRef').value.trim(), dc = $('extDc').value.trim();
+    if (!texto && !/\d{5,9}\/\d{3,5}\/20\d{2}/.test(ref) && !/\d{4,7}\/\d{3,5}\/\d{2}/.test(dc)) { extMsg('err', 'Cole a linha da planilha ou informe a Ref. SIGSIF e o Nº da DCPOA emitida.', 'Ref. SIGSIF: 00917486/3403/2026 · DCPOA: 007393/3403/26'); return; }
+    EXT.rodando = true; this.disabled = true; extMsg('', 'Pedindo a busca para a extensão…', 'Deixe o SIGSIF (Documentos de Trânsito › Consulta) e a DCPOA (Consultar DCPOA) abertos e logados neste Chrome.', true);
+    window.postMessage({ __confCcs: 'buscar', texto: texto, ref: ref, dc: dc, oc: oc, mostrar: false }, '*');
+    setTimeout(function () { if (EXT.rodando && /Pedindo a busca/.test($('extMsg').textContent)) { EXT.rodando = false; $('extBuscar').disabled = false; extMsg('err', 'A extensão Conferência CCS não respondeu.', 'Recarregue esta página (F5) e tente de novo. Se continuar, abra o painel da extensão pelo ícone.'); } }, 20000);
+  };
 
   /* ---------- política de privacidade ---------- */
   $('abrePriv').onclick = function (e) { e.preventDefault(); $('privMsg').textContent = ''; try { $('priv').showModal(); } catch (x) { $('priv').setAttribute('open', ''); } };

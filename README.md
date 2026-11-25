@@ -30,6 +30,7 @@ Ferramenta em um único arquivo HTML, que funciona sem internet, para conferir o
 
 - Baixar cada arquivo da lista; baixar o compilado (.zip) com a página e todos os arquivos.
 - Imprimir ou baixar a página com marca d'água USO INTERNO SEARA, data e nome de quem conferiu.
+- Com a extensão Conferência CCS (1.2.0 ou mais nova): quadro "Buscar no SIGSIF e na DCPOA" que traz o SIGSIF da exportação, a DCPOA emitida e os Documentos de Respaldo dela, com a Ref. SIGSIF preenchida pelo Anexo IV.
 - Buscar os respaldos da carga numa pasta (inclusive de rede), pelo número no nome do arquivo: pela janela de pasta, pelo modo alternativo ou arrastando a pasta para a página.
 
 ## Gerar de novo
